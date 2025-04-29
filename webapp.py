@@ -1,6 +1,10 @@
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from pyvis.network import Network
 from neo4j import GraphDatabase
 from config import CONFIG
+
+app = FastAPI()
 
 class Visualizer:
     def __init__(self, uri, user, password):
@@ -9,7 +13,7 @@ class Visualizer:
     def close(self):
         self.driver.close()
 
-    def generate_graph(self, output_file="ssh_network.html"):
+    def get_graph_html(self):
         net = Network(height="750px", width="100%", directed=True)
         with self.driver.session() as session:
             results = session.run("MATCH (a:Host)-[r:CAN_SSH_TO]->(b:Host) RETURN a.ip AS from, b.ip AS to, r.user AS user, r.method AS method")
@@ -20,10 +24,13 @@ class Visualizer:
                 net.add_node(src, label=src)
                 net.add_node(dst, label=dst)
                 net.add_edge(src, dst, label=label)
-        net.show(output_file)
+        net.show("templates/graph.html")
+        with open("templates/graph.html") as f:
+            return f.read()
 
-if __name__ == "__main__":
+@app.get("/graph", response_class=HTMLResponse)
+def graph():
     viz = Visualizer(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
-    viz.generate_graph()
+    html = viz.get_graph_html()
     viz.close()
-    print("Graph generated: ssh_network.html")
+    return HTMLResponse(content=html)

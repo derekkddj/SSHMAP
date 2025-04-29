@@ -1,0 +1,118 @@
+import socket
+import psutil
+import ipaddress
+from .logger import sshmap_logger
+
+
+def read_targets(file_path):
+    """Read IPs or CIDRs from the given file and expand CIDRs into individual IPs."""
+    targets = []
+    
+    with open(file_path, 'r') as file:
+        for line in file.readlines():
+            line = line.strip()
+            if line:  # Skip empty lines
+                try:
+                    # Check if the line is a valid CIDR block
+                    network = ipaddress.IPv4Network(line, strict=False)
+                    # If it's a valid CIDR, expand it to individual IPs and add them to targets
+                    targets.extend([str(ip) for ip in network.hosts()])
+                except ValueError:
+                    # If it's not a valid CIDR, treat it as an individual IP
+                    targets.append(line)
+    
+    return targets
+
+def get_local_info():
+    hostname = socket.gethostname()
+    ip_info = []
+
+    for iface, addrs in psutil.net_if_addrs().items():
+        for addr in addrs:
+            if addr.family == socket.AF_INET:
+                mask = netmask_to_cidr(addr.netmask)  # Convert netmask to CIDR
+                ip_info.append({
+                    'ip': addr.address,
+                    'mask': mask
+                })
+
+    return hostname, ip_info
+
+def netmask_to_cidr(netmask):
+    """Convert dotted-decimal netmask to CIDR notation."""
+    return sum([bin(int(x)).count('1') for x in netmask.split('.')])
+
+# ssh_client is an instance of SSHSession
+def get_remote_info(ssh_client):
+    sshmap_logger.debug("Getting remote hostname...")
+    try:
+        hostname, err = ssh_client.exec_command_with_stderr("hostname")
+        hostname = hostname.strip() if not err else ssh_client.client.get_transport().getpeername()[0]
+    except Exception as e:
+        sshmap_logger.error(f"Failed to get hostname: {e}")
+        hostname = ssh_client.client.get_transport().getpeername()[0]
+
+    ip_info = []
+
+    # Try `ip` command first
+    out, err = ssh_client.exec_command_with_stderr("ip -o -4 addr show | awk '{print $4}'")
+    if err or not out.strip():
+        sshmap_logger.warning(f"`ip` command failed or missing: {err.strip()}")
+    else:
+        cidrs = out.strip().split()
+        for cidr in cidrs:
+            if '/' in cidr:
+                ip, mask = cidr.split('/')
+                ip_info.append({'ip': ip, 'mask': int(mask)})
+
+    # Fallback to `ifconfig` if `ip` failed or returned nothing
+    if not ip_info:
+        out, err = ssh_client.exec_command_with_stderr("ifconfig")
+        if err or not out.strip():
+            sshmap_logger.warning(f"`ifconfig` command failed or missing: {err.strip()}")
+        else:
+            lines = out.strip().splitlines()
+            current_ip = None
+            for line in lines:
+                line = line.strip()
+                if "inet " in line and "127.0.0.1" not in line:
+                    parts = line.split()
+                    for i, part in enumerate(parts):
+                        if part == "inet":
+                            current_ip = parts[i + 1]
+                        elif "netmask" in part:
+                            netmask = parts[i + 1]
+                            try:
+                                mask = sum([bin(int(x)).count('1') for x in netmask.split('.')])
+                                if current_ip:
+                                    ip_info.append({'ip': current_ip, 'mask': mask})
+                            except Exception as e:
+                                sshmap_logger.warning(f"Netmask parse error: {e}")
+
+    # Final fallback
+    if not ip_info:
+        try:
+            peer_ip = ssh_client.client.get_transport().getpeername()[0]
+            ip_info = [{'ip': peer_ip, 'mask': 32}]
+        except Exception as e:
+            sshmap_logger.error(f"Failed to get peer IP: {e}")
+            ip_info = []
+
+    return hostname, ip_info
+
+def in_same_subnet(ip1, mask1, ip2, mask2):
+    net1 = ipaddress.ip_network(f"{ip1}/{mask1}", strict=False)
+    net2 = ipaddress.ip_network(f"{ip2}/{mask2}", strict=False)
+    return net1.overlaps(net2)
+
+def get_all_ips_in_subnet(ip, mask):
+    network = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
+    return [str(host) for host in network.hosts()]
+
+def check_open_port(ip, port):
+    """Check if a specific port is open on a given IP address."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1)  # Set timeout to 1 second
+    result = sock.connect_ex((ip, port))
+    sock.close()
+    return result == 0  # Return True if the port is open (result == 0)

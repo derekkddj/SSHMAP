@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  sshserver:
+    image: rastasheep/ubuntu-sshd:18.04
+    container_name: sshserver
+    ports:
+      - "2222:22"   # Map port 2222 on the host to 22 inside the container
+    environment:
+      - ROOT_PASSWORD=root
+    command: bash -c "echo 'root:root' | chpasswd && /usr/sbin/sshd -D"
