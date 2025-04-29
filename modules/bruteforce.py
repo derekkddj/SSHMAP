@@ -48,7 +48,7 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
                 try:
                     sshmap_logger.info(f"Attempted password for {user}:{password}@{host}:{port}")
                     ssh = SSHSession(host, user, password=password, port=port, jumper=jumper)
-                    if await ssh.connect():
+                    if await asyncio.wait_for(ssh.connect(), timeout=5):
                         sshmap_logger.highlight(f"{user}:{password}@{host}:{port}")
                         # Store the credential in the CredentialStore
                         credential_store.store(host, port, user, password, "password")
@@ -61,7 +61,7 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
                 try:
                     sshmap_logger.info(f"Attempted keyfile for {user}:{keyfile}@{host}:{port}")
                     ssh = SSHSession(host, user, key_filename=keyfile, port=port, jumper=jumper)
-                    if await ssh.connect():
+                    if await asyncio.wait_for(ssh.connect(), timeout=5):
                         sshmap_logger.highlight(f"{user}:{keyfile}@{host}:{port}")
                         # Store the credential in the CredentialStore
                         credential_store.store(host, port, user, keyfile, "keyfile")

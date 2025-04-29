@@ -3,9 +3,11 @@ import asyncio
 import os
 from modules import bruteforce, graphdb, key_scanner
 from modules.logger import sshmap_logger, setup_debug_logging
-from config import CONFIG
+from modules.config import CONFIG
 from modules.utils import get_local_info, get_remote_info, read_targets, check_open_port
 from modules.credential_store import CredentialStore
+import signal
+
 
 
 # Setup neo4j
@@ -16,8 +18,35 @@ ssh_ports = CONFIG["ssh_ports"]
 # Max depth for the ssh scan
 max_depth = CONFIG["max_depth"]
 # Thread-safe function to handle a target
+
+visited_attempts = set()
+
+
 async def handle_target(target, maxworkers, credential_store, current_depth, jump=None):
+       
+    if current_depth > max_depth:
+        sshmap_logger.info(f"Max depth {max_depth} reached. Skipping {target}")
+        return
+    if current_depth == 1:
+        source_host = start_host
+    else:
+        source_host = jump.get_remote_hostname()
+
+    if jump is not None:
+        sshmap_logger.display(f"New handle_target with target:{target} with jump {jump.get_host()} and current depth {current_depth} starting from {source_host}")
+    else:
+        sshmap_logger.display(f"New handle_target with target:{target} and current depth {current_depth} , starting from {source_host}")
+    # Avoid retrying same target from same source
+    if (source_host, target) in visited_attempts:
+        sshmap_logger.display(f"Already attempted {target} from {source_host}. Skipping.")
+        return
+    else:
+        sshmap_logger.info(f"Adding to visited_attempts {target} from {source_host}.")
+        # Mark this attempt as visited
+        visited_attempts.add((source_host, target))
+
     for port in ssh_ports:
+        sshmap_logger.display(f"Scaning {target} port {port}.")
         # We can not check open ports if we are using a jump host, so we just try to connect to all ports
         if current_depth > 1 or check_open_port(target, port):
             sshmap_logger.display(f"[{target}] Port {port} is open, starting bruteforce...")
@@ -33,12 +62,22 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                     sshmap_logger.info(f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}")
                     sshmap_logger.info(f"[{target}:{port}] Net info target: {remote_hostname} with IPs: {remote_ips}")
                     graph.add_host(remote_hostname, remote_ips)
-                    sshmap_logger.info(f"[{target}:{port}] Add SSH connection {start_host}->{remote_hostname} with creds:{res.user}:{res.creds}")
-                    graph.add_ssh_connection(from_hostname=start_host, to_hostname=remote_hostname, user=res.user, method=res.method, creds=res.creds, ip=target, port=port)
-                    sshmap_logger.success(f"[{target}:{port}] Successfully added SSH connection from {start_host} to {remote_hostname} with user {res.user}")
+                    sshmap_logger.info(f"[{target}:{port}] Add SSH connection {source_host}->{remote_hostname} with creds:{res.user}:{res.creds}")
+                    graph.add_ssh_connection(from_hostname=source_host, to_hostname=remote_hostname, user=res.user, method=res.method, creds=res.creds, ip=target, port=port)
+                    sshmap_logger.success(f"[{target}:{port}] Successfully added SSH connection from {source_host} to {remote_hostname} with user {res.user}")
                     #keys_found = key_scanner.find_keys(ssh_conn)
                     #logger.info(f"[{target}] Keys found: {keys_found}")
                     # Close the SSH connection
+                    new_targets = ["172.19.0.3","172.19.0.2"]
+                    sshmap_logger.info(f"[{target}] We create a recursive now with remote_hostname {remote_hostname}")
+                    for new_target in new_targets:
+                        await handle_target(
+                                new_target,
+                                maxworkers,
+                                credential_store,
+                                current_depth + 1,
+                                jump=ssh_conn,
+                            )
                     await ssh_conn.close()
 
 async def worker(target_queue, maxworkers, credential_store, current_depth):

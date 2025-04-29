@@ -1,7 +1,7 @@
 import asyncssh
 import asyncio
 from .logger import sshmap_logger
-from .utils import get_remote_info
+from .utils import get_remote_info, get_remote_hostname
 
 
 class SSHSession:
@@ -14,11 +14,10 @@ class SSHSession:
         self.port = port
         self.jumper = jumper
         self.connection = None  # Initialize the client as None
+        self.remote_hostname = None
         if jumper:
             # jumper is an instance of SSHSession, get the transport ip from the jumper
             sshmap_logger.debug(f"[{host}:{port}] Using jumper {jumper}...")
-            jumper_hostname,jumper_ips = get_remote_info(jumper)
-            sshmap_logger.info(f"[{host}:{port}] Using jump session {jumper_hostname} for {user}@{host}")
 
 
     async def connect(self):
@@ -27,20 +26,21 @@ class SSHSession:
             # Direct connection or via jumper (proxy)
             if self.jumper:
                 if self.key_filename:
-                    self.connection = await asyncssh.connect(self.host, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
+                    self.connection = await asyncssh.connect(self.host, connect_timeout=15, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
                                                      password=self.password, known_hosts=None, client_keys=[self.key_filename])
                     sshmap_logger.success(f"[{self.jumper}->{self.host}:{self.port}] Successfully connected as {self.user} with keyfile {self.key_filename}")
                 else:
-                    self.connection = await asyncssh.connect(self.host, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
+                    self.connection = await asyncssh.connect(self.host, connect_timeout=15, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
                                                      password=self.password, known_hosts=None, client_keys=None)
                     sshmap_logger.success(f"[{self.host}:{self.port}] Successfully connected as {self.user} with password {self.password}")
             else:
                 if self.key_filename:
-                    self.connection = await asyncssh.connect(self.host, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, known_hosts=None, client_keys=[self.key_filename])
+                    self.connection = await asyncssh.connect(self.host, connect_timeout=15, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, known_hosts=None, client_keys=[self.key_filename])
                     sshmap_logger.success(f"[{self.host}:{self.port}] Successfully connected as {self.user} with keyfile {self.key_filename}")
                 else:   
-                    self.connection = await asyncssh.connect(self.host, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, password=self.password, known_hosts=None, client_keys=None)
+                    self.connection = await asyncssh.connect(self.host, connect_timeout=15, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, password=self.password, known_hosts=None, client_keys=None)
                     sshmap_logger.success(f"[{self.host}:{self.port}] Successfully connected as {self.user} with password {self.password}")
+            self.remote_hostname = await get_remote_hostname(self)
             return True
 
         except asyncssh.AuthenticationException as e:
@@ -56,6 +56,10 @@ class SSHSession:
 
     async def get_jumper(self):
         return self.jumper
+
+
+    def get_remote_hostname(self):
+        return self.remote_hostname
 
     async def exec_command(self, command):
         """Execute command on remote machine."""

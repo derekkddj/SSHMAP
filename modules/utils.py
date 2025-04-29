@@ -2,6 +2,7 @@ import socket
 import psutil
 import ipaddress
 from .logger import sshmap_logger
+from .config import CONFIG
 
 
 def read_targets(file_path):
@@ -41,6 +42,17 @@ def get_local_info():
 def netmask_to_cidr(netmask):
     """Convert dotted-decimal netmask to CIDR notation."""
     return sum([bin(int(x)).count('1') for x in netmask.split('.')])
+
+# ssh_client is an instance of SSHSession
+async def get_remote_hostname(ssh_client):
+    sshmap_logger.debug("Getting remote hostname...")
+    try:
+        hostname, err = await ssh_client.exec_command_with_stderr("hostname")
+        hostname = hostname.strip() if not err else ssh_client.connection.get_extra_info('peername')[0]
+    except Exception as e:
+        sshmap_logger.error(f"Failed to get hostname: {e}")
+        hostname = ssh_client.host
+    return hostname
 
 # ssh_client is an instance of SSHSession
 async def get_remote_info(ssh_client):
@@ -92,7 +104,10 @@ async def get_remote_info(ssh_client):
     # Final fallback
     if not ip_info:
         try:
+            
             peer_ip = ssh_client.connection.get_extra_info('peername')[0]
+            if not peer_ip:
+                peer_ip = ssh_client.get_host()
             ip_info = [{'ip': peer_ip, 'mask': 32}]
         except Exception as e:
             sshmap_logger.error(f"Failed to get peer IP: {e}")
@@ -106,6 +121,7 @@ def in_same_subnet(ip1, mask1, ip2, mask2):
     return net1.overlaps(net2)
 
 def get_all_ips_in_subnet(ip, mask):
+    mask = max(mask, CONFIG["max_mask"])
     network = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
     return [str(host) for host in network.hosts()]
 
