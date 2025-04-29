@@ -1,6 +1,7 @@
 from .SSHSession import SSHSession
 from .logger import sshmap_logger
 import concurrent.futures
+import asyncio
 
 
 class Result:
@@ -21,7 +22,7 @@ class Result:
         return self.ssh_session
 
 
-def try_single_credential(host, port, credential, jumper=None, credential_store=None):
+async def try_single_credential(host, port, credential, jumper=None, credential_store=None):
     """Class to attempt a single credential authentication.
     This function tries to authenticate using either a password or a keyfile.
     If successful, it stores the credential in the CredentialStore.
@@ -32,9 +33,7 @@ def try_single_credential(host, port, credential, jumper=None, credential_store=
     Args:
         host (str): The target host.
         port (int): Port number to connect to.
-        user (str): Username for authentication.
-        password (str, optional): Password for authentication. Defaults to None.
-        keyfile (str, optional): Path to the keyfile for authentication. Defaults to None.
+        credential (dict): Credential information including user, method, and secret.
         credential_store (CredentialStore, optional): Credential store to save successful attempts. Defaults to None.
         jumper (str, optional): Jumper host for SSH connection. Defaults to None. SSHSession.
 
@@ -49,7 +48,7 @@ def try_single_credential(host, port, credential, jumper=None, credential_store=
                 try:
                     sshmap_logger.info(f"Attempted password for {user}:{password}@{host}:{port}")
                     ssh = SSHSession(host, user, password=password, port=port, jumper=jumper)
-                    if ssh.get_client():
+                    if await ssh.connect():
                         sshmap_logger.highlight(f"{user}:{password}@{host}:{port}")
                         # Store the credential in the CredentialStore
                         credential_store.store(host, port, user, password, "password")
@@ -62,7 +61,7 @@ def try_single_credential(host, port, credential, jumper=None, credential_store=
                 try:
                     sshmap_logger.info(f"Attempted keyfile for {user}:{keyfile}@{host}:{port}")
                     ssh = SSHSession(host, user, key_filename=keyfile, port=port, jumper=jumper)
-                    if ssh.client:
+                    if await ssh.connect():
                         sshmap_logger.highlight(f"{user}:{keyfile}@{host}:{port}")
                         # Store the credential in the CredentialStore
                         credential_store.store(host, port, user, keyfile, "keyfile")
@@ -74,7 +73,7 @@ def try_single_credential(host, port, credential, jumper=None, credential_store=
         sshmap_logger.error(f"Failed to authenticate {user}@{host}:{port}. Exception: {e}")
     return None
 
-def try_all(host, port, maxworkers=10, jumper=None,credential_store=None):
+async def try_all(host, port, maxworkers=10, jumper=None,credential_store=None):
     """Try all combinations of users, passwords, and keyfiles against a target host.
 
     Args:
@@ -89,16 +88,21 @@ def try_all(host, port, maxworkers=10, jumper=None,credential_store=None):
         list: List of Result objects for successful authentication attempts.
     """
     results = []
+    tasks = []
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=maxworkers) as executor:
-        futures = []
-        # Queue password attempts
-        #We will use only the data from the credential store
-        for credential in credential_store.get_all():
-            futures.append(executor.submit(try_single_credential, host, port, credential, jumper=jumper, credential_store=credential_store))
-        # Collect finished futures
-        for future in concurrent.futures.as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
+    # Schedule all credential attempts as async tasks
+    for credential in credential_store.get_all():
+        task = asyncio.create_task(
+            try_single_credential(host, port, credential, jumper=jumper, credential_store=credential_store)
+        )
+        tasks.append(task)
+
+    # Wait for all tasks to complete
+    completed = await asyncio.gather(*tasks)
+
+    # Filter successful results
+    for result in completed:
+        if result:
+            results.append(result)
+
     return results

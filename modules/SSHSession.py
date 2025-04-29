@@ -1,5 +1,5 @@
-from paramiko_jump import SSHJumpClient, simple_auth_handler
-from paramiko import AutoAddPolicy, SSHException, AuthenticationException, SSHException
+import asyncssh
+import asyncio
 from .logger import sshmap_logger
 from .utils import get_remote_info
 
@@ -7,52 +7,89 @@ from .utils import get_remote_info
 class SSHSession:
     def __init__(self, host, user, password=None, key_filename=None, port=22,jumper=None):
         # If jump_session is provided, use it for the connection. Must be SSHJumpClient instance.
+        self.host = host
+        self.user = user
+        self.password = password
+        self.key_filename = key_filename
+        self.port = port
         self.jumper = jumper
+        self.connection = None  # Initialize the client as None
         if jumper:
             # jumper is an instance of SSHSession, get the transport ip from the jumper
             sshmap_logger.debug(f"[{host}:{port}] Using jumper {jumper}...")
             jumper_hostname,jumper_ips = get_remote_info(jumper)
             sshmap_logger.info(f"[{host}:{port}] Using jump session {jumper_hostname} for {user}@{host}")
-            self.client = SSHJumpClient(jump_session=jumper)
-        else:
-            sshmap_logger.info(f"[{host}:{port}] No jump session provided, direct connection")
-            self.client = SSHJumpClient()
-        self.client.set_missing_host_key_policy(AutoAddPolicy())
-        # Disable SSH agent and don't look for any keys
-        self.client.load_system_host_keys()
-        self.client.get_host_keys().clear()
-        try:
-            if key_filename:
-                sshmap_logger.debug(f"[{host}:{port}] Test: {user}@{host} using keyfile: {key_filename} in SSHSession")
-                self.client.connect(hostname=host, port=port, username=user, key_filename=key_filename,timeout=5, allow_agent=False, look_for_keys=False)
-                sshmap_logger.success(f"[{host}:{port}] Success: {user}@{host} using keyfile: {key_filename}")
-            else:
-                sshmap_logger.debug(f"[{host}:{port}] Test: {user}@{host} using password: {password} in SSHSession")
-                self.client.connect(hostname=host, port=port, username=user, password=password, timeout=5, allow_agent=False, look_for_keys=False)
-                sshmap_logger.success(f"[{host}:{port}] Success: {user}@{host} using password: {password}")
-        except AuthenticationException as e:
-            sshmap_logger.debug(f"Authentication failed user: {user}: {e}")
-            self.client = None
-        except SSHException as e:
-            sshmap_logger.error(f"SSH error: {e}")
-            self.client = None
-        except Exception as e:
-            sshmap_logger.error(f"Unexpected error: {e}")
-            self.client = None
 
-    def get_jumper(self):
+
+    async def connect(self):
+        """Connect to the host using asyncssh."""
+        try:
+            # Direct connection or via jumper (proxy)
+            if self.jumper:
+                if self.key_filename:
+                    self.connection = await asyncssh.connect(self.host, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
+                                                     password=self.password, known_hosts=None, client_keys=[self.key_filename])
+                    sshmap_logger.success(f"[{self.jumper}->{self.host}:{self.port}] Successfully connected as {self.user} with keyfile {self.key_filename}")
+                else:
+                    self.connection = await asyncssh.connect(self.host, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
+                                                     password=self.password, known_hosts=None, client_keys=None)
+                    sshmap_logger.success(f"[{self.host}:{self.port}] Successfully connected as {self.user} with password {self.password}")
+            else:
+                if self.key_filename:
+                    self.connection = await asyncssh.connect(self.host, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, known_hosts=None, client_keys=[self.key_filename])
+                    sshmap_logger.success(f"[{self.host}:{self.port}] Successfully connected as {self.user} with keyfile {self.key_filename}")
+                else:   
+                    self.connection = await asyncssh.connect(self.host, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, password=self.password, known_hosts=None, client_keys=None)
+                    sshmap_logger.success(f"[{self.host}:{self.port}] Successfully connected as {self.user} with password {self.password}")
+            return True
+
+        except asyncssh.AuthenticationException as e:
+            sshmap_logger.error(f"Authentication failed for {self.user}@{self.host}: {e}")
+            self.connection = None
+        except asyncssh.SSHException as e:
+            sshmap_logger.error(f"SSH error for {self.user}@{self.host}: {e}")
+            self.connection = None
+        except Exception as e:
+            sshmap_logger.error(f"Unexpected error for {self.user}@{self.host}: {e}")
+            self.connection = None
+
+
+    async def get_jumper(self):
         return self.jumper
 
-    def exec_command(self, command):
-        stdin, stdout, stderr = self.client.exec_command(command)
-        return stdout.read().decode()
+    async def exec_command(self, command):
+        """Execute command on remote machine."""
+        if self.connection is None:
+            raise ValueError("SSH connection is not established.")
+        
+        try:
+            result = await self.connection.run(command)
+            return result.stdout
+        except asyncssh.SSHException as e:
+            sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
+            return None
+    async def exec_command_with_stderr(self, command):
+        """Execute command on remote machine."""
+        if self.connection is None:
+            raise ValueError("SSH connection is not established.")
+        
+        try:
+            result = await self.connection.run(command)
+            return result.stdout, result.stderr
+        except asyncssh.SSHException as e:
+            sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
+            return None
+    async def close(self):
+        """Close the SSH connection."""
+        if self.connection:
+            self.connection.close()
+            await self.connection.wait_closed()
+            sshmap_logger.debug(f"Closed SSH connection to {self.host}")
 
-    def exec_command_with_stderr(self, command):
-        stdin, stdout, stderr = self.client.exec_command(command)
-        return stdout.read().decode(), stderr.read().decode()
+    
+    def get_connection(self):
+        return self.connection
 
-    def get_client(self):
-        return self.client
+    def get_host(self):
+        return self.host
 
-    def close(self):
-        self.client.close()

@@ -9,3 +9,4 @@ termcolor
 ipaddress
 psutil
 paramiko-jump
+asyncssh

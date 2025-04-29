@@ -43,31 +43,31 @@ def netmask_to_cidr(netmask):
     return sum([bin(int(x)).count('1') for x in netmask.split('.')])
 
 # ssh_client is an instance of SSHSession
-def get_remote_info(ssh_client):
+async def get_remote_info(ssh_client):
     sshmap_logger.debug("Getting remote hostname...")
     try:
-        hostname, err = ssh_client.exec_command_with_stderr("hostname")
-        hostname = hostname.strip() if not err else ssh_client.client.get_transport().getpeername()[0]
+        hostname, err = await ssh_client.exec_command_with_stderr("hostname")
+        hostname = hostname.strip() if not err else ssh_client.connection.get_extra_info('peername')[0]
     except Exception as e:
         sshmap_logger.error(f"Failed to get hostname: {e}")
-        hostname = ssh_client.client.get_transport().getpeername()[0]
+        hostname = ssh_client.host
 
     ip_info = []
 
     # Try `ip` command first
-    out, err = ssh_client.exec_command_with_stderr("ip -o -4 addr show | awk '{print $4}'")
+    out, err = await ssh_client.exec_command_with_stderr("ip -o -4 addr show | awk '{print $4}'")
     if err or not out.strip():
         sshmap_logger.warning(f"`ip` command failed or missing: {err.strip()}")
     else:
         cidrs = out.strip().split()
         for cidr in cidrs:
-            if '/' in cidr:
+            if '/' in cidr and "127.0.0.1" not in cidr:
                 ip, mask = cidr.split('/')
                 ip_info.append({'ip': ip, 'mask': int(mask)})
 
     # Fallback to `ifconfig` if `ip` failed or returned nothing
     if not ip_info:
-        out, err = ssh_client.exec_command_with_stderr("ifconfig")
+        out, err = await ssh_client.exec_command_with_stderr("ifconfig")
         if err or not out.strip():
             sshmap_logger.warning(f"`ifconfig` command failed or missing: {err.strip()}")
         else:
@@ -92,7 +92,7 @@ def get_remote_info(ssh_client):
     # Final fallback
     if not ip_info:
         try:
-            peer_ip = ssh_client.client.get_transport().getpeername()[0]
+            peer_ip = ssh_client.connection.get_extra_info('peername')[0]
             ip_info = [{'ip': peer_ip, 'mask': 32}]
         except Exception as e:
             sshmap_logger.error(f"Failed to get peer IP: {e}")
