@@ -1,3 +1,6 @@
+wordlists/*
+wordlists/ips.txt
+
 wordlists/passwords.txt
 wordlists/users.txt
 wordlists/credentials.csv
