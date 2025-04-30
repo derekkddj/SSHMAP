@@ -30,9 +30,9 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
             return
         source_host = start_host if current_depth == 1 else jump.get_remote_hostname()
         if jump is not None:
-            sshmap_logger.display(f"New handle_target with target:{target} with jump {jump.get_host()} and current depth {current_depth} starting from {source_host}")
+            sshmap_logger.info(f"New handle_target with target:{target} with jump {jump.get_host()} and current depth {current_depth} starting from {source_host}")
         else:
-            sshmap_logger.display(f"New handle_target with target:{target} and current depth {current_depth} , starting from {source_host}")
+            sshmap_logger.info(f"New handle_target with target:{target} and current depth {current_depth} , starting from {source_host}")
         # Avoid retrying same target from same source
         if (source_host,target) in visited_attempts:
             sshmap_logger.info(f"Already scanned from {source_host}. Skipping.")
@@ -70,7 +70,7 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                             new_targets.extend(get_all_ips_in_subnet(remote_ip_cidr["ip"], remote_ip_cidr["mask"]))
                         # tests with 2 ips only
                         #new_targets = ["172.19.0.3","172.19.0.2"]
-                        sshmap_logger.display(f"We create a recursive now with remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets")
+                        sshmap_logger.info(f"We create a recursive now with remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets")
                         for new_target in new_targets:
                             await queue.put((new_target, current_depth + 1, ssh_conn))
                         # I dont know how to close the connection, if i close it here, the jump will fail.
