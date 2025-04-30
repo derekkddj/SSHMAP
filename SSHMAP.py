@@ -17,13 +17,13 @@ graph = graphdb.GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j
 start_host, start_ips = get_local_info()
 ssh_ports = CONFIG["ssh_ports"]
 # Max depth for the ssh scan
-max_depth = CONFIG["max_depth"]
+max_depth = 2
 # Thread-safe function to handle a target
 
 visited_attempts = set()
 
 
-async def handle_target(target, maxworkers, credential_store, current_depth, jump=None, queue=None):
+async def handle_target(target, maxworkers, credential_store, current_depth, jump=None, queue=None, blacklist_ips=None):
     try:   
         if current_depth > max_depth:
             sshmap_logger.info(f"Max depth {max_depth} reached. Skipping {target}")
@@ -68,6 +68,11 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                         new_targets = []
                         for remote_ip_cidr in remote_ips:
                             new_targets.extend(get_all_ips_in_subnet(remote_ip_cidr["ip"], remote_ip_cidr["mask"]))
+                        
+                        # remove duplicated targets
+                        new_targets = list(set(new_targets))
+                        # remove blacklisted ips
+                        new_targets = [ip for ip in new_targets if ip not in blacklist_ips]
                         # tests with 2 ips only
                         #new_targets = ["172.19.0.3","172.19.0.2"]
                         sshmap_logger.info(f"We create a recursive now with remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets")
@@ -79,13 +84,13 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
         print(f"{target} was cancelled in handle target.")
         raise
 
-async def worker(queue, semaphore, maxworkers, credential_store):
+async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips):
     while True:
         try:
             target, depth, jumper = await queue.get()
 
             async with semaphore:
-                await handle_target(target, maxworkers, credential_store, current_depth=depth, jump=jumper, queue=queue)
+                await handle_target(target, maxworkers, credential_store, current_depth=depth, jump=jumper, queue=queue, blacklist_ips=blacklist_ips)
 
         except asyncio.CancelledError:
             break
@@ -112,13 +117,15 @@ async def async_main(args):
     sshmap_logger.display(f"Starting attack on {len(targets)} targets with max depth {max_depth}")
     graph.add_host(start_host, start_ips)
 
+    blacklist_ips = read_targets(args.blacklist) if args.blacklist else []
+
     # Launch multiple tasks concurrently for all targets
     queue = asyncio.Queue()
     for target in targets:
         await queue.put((target, 1, None))  # Initial targets, no jumper
 
     semaphore = asyncio.Semaphore(args.maxworkers)
-    workers = [asyncio.create_task(worker(queue, semaphore, args.maxworkers, credential_store)) for _ in range(args.maxworkers)]
+    workers = [asyncio.create_task(worker(queue, semaphore, args.maxworkers, credential_store, blacklist_ips)) for _ in range(args.maxworkers)]
 
     try:
         await queue.join()  # Wait until all work is done
@@ -153,15 +160,19 @@ def main():
     {highlight('Version', 'red')} : {highlight(VERSION)}
     """, formatter_class=RawTextHelpFormatter,)    
     parser.add_argument("--targets", required=True, help="Path to the file with target IPs")
+    parser.add_argument("--blacklist", required=False, help="Path to the file with IPs to ignore")
     parser.add_argument("--users", default="wordlists/users.txt", help="Path to the file with usernames for bruteforce")
     parser.add_argument("--passwords", default="wordlists/passwords.txt", help="Path to the file with passwords for bruteforce")
     parser.add_argument("--credentialspath", default="wordlists/credentials.csv", help="Path to CSV credentials file, will populate users and passwords")
     parser.add_argument("--keys", default="wordlists/keys/", help="Path to directory with SSH private keys")
     parser.add_argument("--maxworkers", type=int, default=10, help="Number of workers for target")
+    parser.add_argument("--maxdepth", type=int, default=2, help="Depth of the scan")
     parser.add_argument("--debug", action="store_true", help="enable debug level information")
     parser.add_argument("--verbose", action="store_true", help="enable verbose output")
 
     args = parser.parse_args()
+    global max_depth
+    max_depth = args.maxdepth
     asyncio.run(async_main(args))
     
 

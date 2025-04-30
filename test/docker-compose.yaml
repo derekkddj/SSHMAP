@@ -1,11 +1,56 @@
 version: '3.8'
 
 services:
-  sshserver:
+  machine1:
     image: rastasheep/ubuntu-sshd:18.04
-    container_name: sshserver
+    container_name: machine1
+    hostname: machine1_direct
+    networks:
+      - hostnet
     ports:
-      - "2222:22"   # Map port 2222 on the host to 22 inside the container
+      - "2222:22"
     environment:
       - ROOT_PASSWORD=root
-    command: bash -c "echo 'root:root' | chpasswd && /usr/sbin/sshd -D"
+    command: bash -c "echo 'root:root' | chpasswd && /usr/sbin/sshd -D"                                            
+    volumes:
+      - ./sshd_config:/etc/ssh/sshd_config
+
+  machine2:
+    image: rastasheep/ubuntu-sshd:18.04
+    container_name: machine2
+    hostname: machine2_useasjumphost
+    networks:
+      hostnet:
+      privnet:
+        ipv4_address: 172.19.0.2
+    ports:
+      - "2223:22"
+    environment:
+      - ROOT_PASSWORD=root
+    command: bash -c "echo 'root:root' | chpasswd && apt update && apt install -y net-tools && /usr/sbin/sshd -D"  
+    volumes:
+      - ./sshd_config:/etc/ssh/sshd_config
+
+  machine3:
+    image: rastasheep/ubuntu-sshd:18.04
+    container_name: machine3
+    hostname: machine3_hidden
+    networks:
+      privnet:
+        ipv4_address: 172.19.0.3
+    environment:
+      - ROOT_PASSWORD=root
+    command: bash -c "echo 'root:root' | chpasswd && apt update && apt install -y iptables && iptables -P INPUT DROP && iptables -A INPUT -s 1>
+    volumes:
+      - ./sshd_config:/etc/ssh/sshd_config
+    cap_add:
+      - NET_ADMIN
+
+networks:
+  hostnet:
+    driver: bridge
+  privnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "172.19.0.0/16"
