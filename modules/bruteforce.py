@@ -3,6 +3,8 @@ from .logger import sshmap_logger
 import concurrent.futures
 import asyncio
 from .credential_store import CredentialStore, Credential
+import sys
+
 
 
 class Result:
@@ -24,6 +26,7 @@ class Result:
 
 
 async def try_single_credential(host, port, credential, jumper=None, credential_store=None):
+    sshmap_logger.info(f"Attempting {credential.method} authentication for {credential.user}@{host}:{port}")
     """Class to attempt a single credential authentication.
     This function tries to authenticate using either a password or a keyfile.
     If successful, it stores the credential in the CredentialStore.
@@ -52,11 +55,13 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
                 ssh = SSHSession(
                     host, user, password=password, port=port, jumper=jumper
                 )
+                
                 if await asyncio.wait_for(ssh.connect(), timeout=5):
                     sshmap_logger.info(f"Successfully authenticated {user}:{password}@{host}:{port}, saving to CredentialStore")
                     # Store the credential in the CredentialStore
                     credential_store.store(host, port, user, password, "password")
                     return Result(user, "password", ssh, password)
+                
             except Exception:
                 sshmap_logger.info(
                     f"Failed to authenticate {user}@{host}:{port} with password: {password}"
@@ -81,6 +86,9 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
                     f"Failed to authenticate {user}@{host}:{port} with keyfile: {keyfile}"
                 )
                 return None
+    except asyncio.CancelledError:
+        print(f"{host} bruteforce was cancelled.")
+        raise
     except Exception as e:
         sshmap_logger.error(
             f"Failed to authenticate {user}@{host}:{port}. Exception: {e}"
@@ -112,8 +120,14 @@ async def try_all(host, port, maxworkers=10, jumper=None,credential_store=None):
         tasks.append(task)
 
     # Wait for all tasks to complete
-    completed = await asyncio.gather(*tasks)
-
+    try:
+        completed = await asyncio.gather(*tasks)
+    except KeyboardInterrupt:
+        print("Ctrl+C received! Cancelling tasks...")
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        print("All tasks cancelled. Exiting cleanly.")  
     # Filter successful results
     for result in completed:
         if result:

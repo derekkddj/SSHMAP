@@ -55,14 +55,11 @@ class SSHSession:
         except asyncssh.PermissionDenied:
             self.sshmap_logger.fail(f"{self.user}:{self.password if self.password else self.key_filename}")
             return False
-        except asyncssh.AuthenticationException as e:
-            self.sshmap_logger.error(f"Authentication failed for {self.user}@{self.host}: {e}")
-            self.connection = None
-        except asyncssh.SSHException as e:
-            self.sshmap_logger.error(f"SSH error for {self.user}@{self.host}: {e}")
-            self.connection = None
+        except asyncssh.ChannelOpenError:
+            self.sshmap_logger.info(f"{self.user}:{self.password if self.password else self.key_filename}")
+            return False
         except Exception as e:
-            self.sshmap_logger.error(f"Unexpected error for {self.user}@{self.host}: {e}")
+            self.sshmap_logger.error(f"Unexpected error for {self.user}@{self.host}: {type(e).__name__} - {e}")
             self.connection = None
 
 

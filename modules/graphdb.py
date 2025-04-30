@@ -1,5 +1,7 @@
 from neo4j import GraphDatabase
 from ipaddress import ip_network
+import time
+
 
 # graphdb.py
 
@@ -29,7 +31,7 @@ class GraphDB:
                 MATCH (src:Host {hostname: $from_hostname})
                 MATCH (dst:Host {hostname: $to_hostname})
                 MERGE (src)-[r:SSH_ACCESS {user: $user, method: $method, creds: $creds, ip: $ip, port:$port}]->(dst)
-            """, from_hostname=from_hostname, to_hostname=to_hostname, user=user, method=method, creds=creds,ip=ip,port=port)
+            """, from_hostname=from_hostname, to_hostname=to_hostname, user=user, method=method, creds=creds, ip=ip, port=port)
 
 
 

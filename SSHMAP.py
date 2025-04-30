@@ -25,77 +25,69 @@ visited_attempts = set()
 
 
 async def handle_target(target, maxworkers, credential_store, current_depth, jump=None):
-       
-    if current_depth > max_depth:
-        sshmap_logger.info(f"Max depth {max_depth} reached. Skipping {target}")
-        return
-    if current_depth == 1:
-        source_host = start_host
-    else:
-        source_host = jump.get_remote_hostname()
+    try:   
+        if current_depth > max_depth:
+            sshmap_logger.info(f"Max depth {max_depth} reached. Skipping {target}")
+            return
+        if current_depth == 1:
+            source_host = start_host
+        else:
+            source_host = jump.get_remote_hostname()
 
-    if jump is not None:
-        sshmap_logger.info(f"New handle_target with target:{target} with jump {jump.get_host()} and current depth {current_depth} starting from {source_host}")
-    else:
-        sshmap_logger.info(f"New handle_target with target:{target} and current depth {current_depth} , starting from {source_host}")
-    # Avoid retrying same target from same source
-    if (source_host, target) in visited_attempts:
-        sshmap_logger.display(f"Already attempted {target} from {source_host}. Skipping.")
-        return
-    else:
-        sshmap_logger.info(f"Adding to visited_attempts {target} from {source_host}.")
-        # Mark this attempt as visited
-        visited_attempts.add((source_host, target))
+        if jump is not None:
+            sshmap_logger.display(f"New handle_target with target:{target} with jump {jump.get_host()} and current depth {current_depth} starting from {source_host}")
+        else:
+            sshmap_logger.display(f"New handle_target with target:{target} and current depth {current_depth} , starting from {source_host}")
+        # Avoid retrying same target from same source
+        if (source_host, target) in visited_attempts:
+            sshmap_logger.display(f"Already attempted {target} from {source_host}. Skipping.")
+            return
+        else:
+            sshmap_logger.info(f"Adding to visited_attempts {target} from {source_host}.")
+            # Mark this attempt as visited
+            visited_attempts.add((source_host, target))
 
-    for port in ssh_ports:
-        sshmap_logger.info(f"Scaning {target} port {port}.")
-        # We can not check open ports if we are using a jump host, so we just try to connect to all ports
-        if current_depth > 1 or check_open_port(target, port):
-            sshmap_logger.info(f"[{target}] Port {port} is open, starting bruteforce...")
-            results = await bruteforce.try_all(target, port, maxworkers, jump, credential_store)
-            for res in results:
-                if res.ssh_session:
-                    #SSHSession object inside res
-                    ssh_conn = res.get_ssh_connection()
-                    # Add the target to the graph
-                    # Get the remote hostname and IPs
-                    sshmap_logger.info(f"[{target}:{port}] Get remote hostname and IPs")
-                    remote_hostname, remote_ips = await get_remote_info(ssh_conn)
-                    sshmap_logger.info(f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}")
-                    sshmap_logger.info(f"[{target}:{port}] Net info target: {remote_hostname} with IPs: {remote_ips}")
-                    graph.add_host(remote_hostname, remote_ips)
-                    sshmap_logger.info(f"[{target}:{port}] Add SSH connection {source_host}->{remote_hostname} with creds:{res.user}:{res.creds}")
-                    graph.add_ssh_connection(from_hostname=source_host, to_hostname=remote_hostname, user=res.user, method=res.method, creds=res.creds, ip=target, port=port)
-                    sshmap_logger.success(f"[{target}:{port}] Successfully added SSH connection from {source_host} to {remote_hostname} with user {res.user}")
-                    #keys_found = key_scanner.find_keys(ssh_conn)
-                    #logger.info(f"[{target}] Keys found: {keys_found}")
-                    # Close the SSH connection
-                    new_targets = []
-                    for remote_ip_cidr in remote_ips:
-                        new_targets.append(get_all_ips_in_subnet(remote_ip_cidr["ip"], remote_ip_cidr["mask"]))
-                    # tests with 2 ips only
-                    new_targets = ["172.19.0.3","172.19.0.2"]
-                    sshmap_logger.display(f"We create a recursive now with remote_hostname {remote_hostname}, loaded {len(new_targets)} new targets")
-                    for new_target in new_targets:
-                        await handle_target(
-                                new_target,
-                                maxworkers,
-                                credential_store,
-                                current_depth + 1,
-                                jump=ssh_conn,
-                            )
-                    await ssh_conn.close()
-
-async def worker(target_queue, maxworkers, credential_store, current_depth):
-    if current_depth > max_depth:
-        sshmap_logger.display(f"Max depth {current_depth} reached. Skipping.")
-        return
-    while not target_queue.empty():
-        target = await target_queue.get()
-        try:
-            await handle_target(target, maxworkers, credential_store, current_depth)
-        finally:
-            target_queue.task_done()
+        for port in ssh_ports:
+            sshmap_logger.info(f"Scaning {target} port {port}.")
+            # We can not check open ports if we are using a jump host, so we just try to connect to all ports
+            if current_depth > 1 or check_open_port(target, port):
+                sshmap_logger.info(f"[{target}] Port {port} is open, starting bruteforce...")
+                results = await bruteforce.try_all(target, port, maxworkers, jump, credential_store)
+                for res in results:
+                    if res.ssh_session:
+                        #SSHSession object inside res
+                        ssh_conn = res.get_ssh_connection()
+                        # Add the target to the graph
+                        # Get the remote hostname and IPs
+                        sshmap_logger.info(f"[{target}:{port}] Get remote hostname and IPs")
+                        remote_hostname, remote_ips = await get_remote_info(ssh_conn)
+                        sshmap_logger.info(f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}")
+                        sshmap_logger.info(f"[{target}:{port}] Net info target: {remote_hostname} with IPs: {remote_ips}")
+                        graph.add_host(remote_hostname, remote_ips)
+                        sshmap_logger.info(f"[{target}:{port}] Add SSH connection {source_host}->{remote_hostname} with creds:{res.user}:{res.creds}")
+                        graph.add_ssh_connection(from_hostname=source_host, to_hostname=remote_hostname, user=res.user, method=res.method, creds=res.creds, ip=target, port=port)
+                        sshmap_logger.success(f"[{target}:{port}] Successfully added SSH connection from {source_host} to {remote_hostname} with user {res.user}")
+                        #keys_found = key_scanner.find_keys(ssh_conn)
+                        #logger.info(f"[{target}] Keys found: {keys_found}")
+                        # Close the SSH connection
+                        new_targets = []
+                        for remote_ip_cidr in remote_ips:
+                            new_targets.extend(get_all_ips_in_subnet(remote_ip_cidr["ip"], remote_ip_cidr["mask"]))
+                        # tests with 2 ips only
+                        #new_targets = ["172.19.0.3","172.19.0.2"]
+                        sshmap_logger.display(f"We create a recursive now with remote_hostname {remote_hostname}, loaded {len(new_targets)} new targets")
+                        for new_target in new_targets:
+                            await handle_target(
+                                    new_target,
+                                    maxworkers,
+                                    credential_store,
+                                    current_depth + 1,
+                                    jump=ssh_conn,
+                                )
+                        await ssh_conn.close()
+    except asyncio.CancelledError:
+        print(f"{target} was cancelled in handle target.")
+        raise
 
 
 async def async_main(args):
@@ -124,7 +116,14 @@ async def async_main(args):
         for target in targets
     ]
 
-    await asyncio.gather(*tasks)
+    try:
+        await asyncio.gather(*tasks)
+    except KeyboardInterrupt:
+        print("Ctrl+C received! Cancelling tasks...")
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        print("All tasks cancelled. Exiting cleanly.")
 
     graph.close()
     sshmap_logger.success("All tasks completed.")

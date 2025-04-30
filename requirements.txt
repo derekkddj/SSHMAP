@@ -2,11 +2,9 @@ fastapi
 uvicorn
 pyvis
 neo4j
-paramiko
 colorlog
 rich
 termcolor
 ipaddress
 psutil
-paramiko-jump
 asyncssh
