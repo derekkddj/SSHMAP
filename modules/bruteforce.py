@@ -53,7 +53,7 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
                     host, user, password=password, port=port, jumper=jumper
                 )
                 if await asyncio.wait_for(ssh.connect(), timeout=5):
-                    sshmap_logger.highlight(f"{user}:{password}@{host}:{port}")
+                    sshmap_logger.info(f"Successfully authenticated {user}:{password}@{host}:{port}, saving to CredentialStore")
                     # Store the credential in the CredentialStore
                     credential_store.store(host, port, user, password, "password")
                     return Result(user, "password", ssh, password)
@@ -72,7 +72,7 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
                     host, user, key_filename=keyfile, port=port, jumper=jumper
                 )
                 if await asyncio.wait_for(ssh.connect(), timeout=5):
-                    sshmap_logger.highlight(f"{user}:{keyfile}@{host}:{port}")
+                    sshmap_logger.info(f"Successfully authenticated {user}:{keyfile}@{host}:{port}, saving to CredentialStore")
                     # Store the credential in the CredentialStore
                     credential_store.store(host, port, user, keyfile, "keyfile")
                     return Result(user, "keyfile", ssh, keyfile)

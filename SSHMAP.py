@@ -3,12 +3,14 @@ import asyncio
 import os
 from modules import bruteforce, graphdb, key_scanner
 from modules.logger import sshmap_logger, setup_debug_logging
+from modules.helpers.logger import highlight
 from modules.config import CONFIG
 from modules.utils import get_local_info, get_remote_info, read_targets, check_open_port, get_all_ips_in_subnet
 from modules.credential_store import CredentialStore
+from argparse import RawTextHelpFormatter
 import signal
 
-
+VERSION="0.1"
 
 # Setup neo4j
 graph = graphdb.GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
@@ -33,9 +35,9 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
         source_host = jump.get_remote_hostname()
 
     if jump is not None:
-        sshmap_logger.display(f"New handle_target with target:{target} with jump {jump.get_host()} and current depth {current_depth} starting from {source_host}")
+        sshmap_logger.info(f"New handle_target with target:{target} with jump {jump.get_host()} and current depth {current_depth} starting from {source_host}")
     else:
-        sshmap_logger.display(f"New handle_target with target:{target} and current depth {current_depth} , starting from {source_host}")
+        sshmap_logger.info(f"New handle_target with target:{target} and current depth {current_depth} , starting from {source_host}")
     # Avoid retrying same target from same source
     if (source_host, target) in visited_attempts:
         sshmap_logger.display(f"Already attempted {target} from {source_host}. Skipping.")
@@ -46,10 +48,10 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
         visited_attempts.add((source_host, target))
 
     for port in ssh_ports:
-        sshmap_logger.display(f"Scaning {target} port {port}.")
+        sshmap_logger.info(f"Scaning {target} port {port}.")
         # We can not check open ports if we are using a jump host, so we just try to connect to all ports
         if current_depth > 1 or check_open_port(target, port):
-            sshmap_logger.display(f"[{target}] Port {port} is open, starting bruteforce...")
+            sshmap_logger.info(f"[{target}] Port {port} is open, starting bruteforce...")
             results = await bruteforce.try_all(target, port, maxworkers, jump, credential_store)
             for res in results:
                 if res.ssh_session:
@@ -73,7 +75,7 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                         new_targets.append(get_all_ips_in_subnet(remote_ip_cidr["ip"], remote_ip_cidr["mask"]))
                     # tests with 2 ips only
                     new_targets = ["172.19.0.3","172.19.0.2"]
-                    sshmap_logger.info(f"[{target}] We create a recursive now with remote_hostname {remote_hostname}")
+                    sshmap_logger.display(f"We create a recursive now with remote_hostname {remote_hostname}, loaded {len(new_targets)} new targets")
                     for new_target in new_targets:
                         await handle_target(
                                 new_target,
@@ -85,7 +87,6 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                     await ssh_conn.close()
 
 async def worker(target_queue, maxworkers, credential_store, current_depth):
-    """Worker function for threads to process targets from the queue."""
     if current_depth > max_depth:
         sshmap_logger.display(f"Max depth {current_depth} reached. Skipping.")
         return
@@ -130,18 +131,30 @@ async def async_main(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SSH Bruteforcer with Neo4j logging")
+
+    parser = argparse.ArgumentParser(
+        description=rf"""
+███████╗███████╗██╗  ██╗███╗   ███╗ █████╗ ██████╗ 
+██╔════╝██╔════╝██║  ██║████╗ ████║██╔══██╗██╔══██╗
+███████╗███████╗███████║██╔████╔██║███████║██████╔╝
+╚════██║╚════██║██╔══██║██║╚██╔╝██║██╔══██║██╔═══╝ 
+███████║███████║██║  ██║██║ ╚═╝ ██║██║  ██║██║     
+╚══════╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝     
+                                                
+                                                         
+        SSH Credential Mapper - SSHMAP           
+        Navigating the Maze of Access...   
+
+    {highlight('Version', 'red')} : {highlight(VERSION)}
+    """, formatter_class=RawTextHelpFormatter,)    
     parser.add_argument("--targets", required=True, help="Path to the file with target IPs")
-    parser.add_argument("--users", default="wordlists/users.txt")
-    parser.add_argument("--passwords", default="wordlists/passwords.txt")
+    parser.add_argument("--users", default="wordlists/users.txt", help="Path to the file with usernames for bruteforce")
+    parser.add_argument("--passwords", default="wordlists/passwords.txt", help="Path to the file with passwords for bruteforce")
     parser.add_argument("--credentialspath", default="wordlists/credentials.csv", help="Path to CSV credentials file, will populate users and passwords")
-    parser.add_argument("--keys", default="wordlists/keys/", help="Path to SSH private keys")
-    parser.add_argument("--threads", type=int, default=4, help="Number of threads to use, one for each target")
+    parser.add_argument("--keys", default="wordlists/keys/", help="Path to directory with SSH private keys")
     parser.add_argument("--maxworkers", type=int, default=10, help="Number of workers for target")
     parser.add_argument("--debug", action="store_true", help="enable debug level information")
     parser.add_argument("--verbose", action="store_true", help="enable verbose output")
-
-
 
     args = parser.parse_args()
     asyncio.run(async_main(args))

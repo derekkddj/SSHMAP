@@ -1,6 +1,7 @@
 import asyncssh
 import asyncio
-from .logger import sshmap_logger
+import logging
+from .logger import NXCAdapter
 from .utils import get_remote_info, get_remote_hostname
 
 
@@ -15,10 +16,18 @@ class SSHSession:
         self.jumper = jumper
         self.connection = None  # Initialize the client as None
         self.remote_hostname = None # hostname of the machine were we are connected to
+        logging.getLogger("asyncssh").disabled = True
+        self.sshmap_logger = NXCAdapter(
+                extra={
+                    "protocol": "SSH",
+                    "host": self.host,
+                    "port": self.port,
+                    "hostname": jumper.get_remote_hostname() if jumper is not None else None,
+                }
+            )
         if jumper:
             # jumper is an instance of SSHSession, get the transport ip from the jumper
-            sshmap_logger.debug(f"[{host}:{port}] Using jumper {jumper}...")
-
+            self.sshmap_logger.debug(f"[{host}:{port}] Using jumper {jumper}...")
 
     async def connect(self):
         """Connect to the host using asyncssh."""
@@ -28,29 +37,32 @@ class SSHSession:
                 if self.key_filename:
                     self.connection = await asyncssh.connect(self.host, connect_timeout=15, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
                                                      password=self.password, known_hosts=None, client_keys=[self.key_filename])
-                    sshmap_logger.success(f"[{self.jumper}->{self.host}:{self.port}] Successfully connected as {self.user} with keyfile {self.key_filename}")
+                    self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
                 else:
                     self.connection = await asyncssh.connect(self.host, connect_timeout=15, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
                                                      password=self.password, known_hosts=None, client_keys=None)
-                    sshmap_logger.success(f"[{self.host}:{self.port}] Successfully connected as {self.user} with password {self.password}")
+                    self.sshmap_logger.success(f"{self.user}:{self.password}")
             else:
                 if self.key_filename:
                     self.connection = await asyncssh.connect(self.host, connect_timeout=15, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, known_hosts=None, client_keys=[self.key_filename])
-                    sshmap_logger.success(f"[{self.host}:{self.port}] Successfully connected as {self.user} with keyfile {self.key_filename}")
+                    self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
                 else:   
                     self.connection = await asyncssh.connect(self.host, connect_timeout=15, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, password=self.password, known_hosts=None, client_keys=None)
-                    sshmap_logger.success(f"[{self.host}:{self.port}] Successfully connected as {self.user} with password {self.password}")
+                    self.sshmap_logger.success(f"{self.user}:{self.password}")
             self.remote_hostname = await get_remote_hostname(self)
             return True
 
+        except asyncssh.PermissionDenied:
+            self.sshmap_logger.fail(f"{self.user}:{self.password if self.password else self.key_filename}")
+            return False
         except asyncssh.AuthenticationException as e:
-            sshmap_logger.error(f"Authentication failed for {self.user}@{self.host}: {e}")
+            self.sshmap_logger.error(f"Authentication failed for {self.user}@{self.host}: {e}")
             self.connection = None
         except asyncssh.SSHException as e:
-            sshmap_logger.error(f"SSH error for {self.user}@{self.host}: {e}")
+            self.sshmap_logger.error(f"SSH error for {self.user}@{self.host}: {e}")
             self.connection = None
         except Exception as e:
-            sshmap_logger.error(f"Unexpected error for {self.user}@{self.host}: {e}")
+            self.sshmap_logger.error(f"Unexpected error for {self.user}@{self.host}: {e}")
             self.connection = None
 
 
@@ -70,7 +82,7 @@ class SSHSession:
             result = await self.connection.run(command)
             return result.stdout
         except asyncssh.SSHException as e:
-            sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
+            self.sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
             return None
     async def exec_command_with_stderr(self, command):
         """Execute command on remote machine."""
@@ -81,14 +93,14 @@ class SSHSession:
             result = await self.connection.run(command)
             return result.stdout, result.stderr
         except asyncssh.SSHException as e:
-            sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
+            self.sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
             return None
     async def close(self):
         """Close the SSH connection."""
         if self.connection:
             self.connection.close()
             await self.connection.wait_closed()
-            sshmap_logger.debug(f"Closed SSH connection to {self.host}")
+            self.sshmap_logger.debug(f"Closed SSH connection to {self.host}")
 
     
     def get_connection(self):
