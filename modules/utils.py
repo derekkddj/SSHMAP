@@ -3,6 +3,7 @@ import psutil
 import ipaddress
 from .logger import sshmap_logger
 from .config import CONFIG
+import asyncio
 
 
 def read_targets(file_path):
@@ -128,10 +129,17 @@ def get_all_ips_in_subnet(ip, mask):
     network = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
     return [str(host) for host in network.hosts()]
 
-def check_open_port(ip, port):
-    """Check if a specific port is open on a given IP address."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(1)  # Set timeout to 1 second
-    result = sock.connect_ex((ip, port))
-    sock.close()
-    return result == 0  # Return True if the port is open (result == 0)
+async def check_open_port(ip, port, timeout=2):
+    try:
+        return await asyncio.wait_for(
+            _check_open_port(ip, port),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        return False
+
+async def _check_open_port(ip, port):
+    reader, writer = await asyncio.open_connection(ip, port)
+    writer.close()
+    await writer.wait_closed()
+    return True

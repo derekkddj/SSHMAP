@@ -8,7 +8,6 @@ from modules.config import CONFIG
 from modules.utils import get_local_info, get_remote_info, read_targets, check_open_port, get_all_ips_in_subnet
 from modules.credential_store import CredentialStore
 from argparse import RawTextHelpFormatter
-import signal
 
 VERSION="0.1"
 
@@ -24,33 +23,29 @@ max_depth = CONFIG["max_depth"]
 visited_attempts = set()
 
 
-async def handle_target(target, maxworkers, credential_store, current_depth, jump=None):
+async def handle_target(target, maxworkers, credential_store, current_depth, jump=None, queue=None):
     try:   
         if current_depth > max_depth:
             sshmap_logger.info(f"Max depth {max_depth} reached. Skipping {target}")
             return
-        if current_depth == 1:
-            source_host = start_host
-        else:
-            source_host = jump.get_remote_hostname()
-
+        source_host = start_host if current_depth == 1 else jump.get_remote_hostname()
         if jump is not None:
             sshmap_logger.display(f"New handle_target with target:{target} with jump {jump.get_host()} and current depth {current_depth} starting from {source_host}")
         else:
             sshmap_logger.display(f"New handle_target with target:{target} and current depth {current_depth} , starting from {source_host}")
         # Avoid retrying same target from same source
-        if (source_host, target) in visited_attempts:
-            sshmap_logger.display(f"Already attempted {target} from {source_host}. Skipping.")
+        if (source_host,target) in visited_attempts:
+            sshmap_logger.info(f"Already scanned from {source_host}. Skipping.")
             return
         else:
             sshmap_logger.info(f"Adding to visited_attempts {target} from {source_host}.")
             # Mark this attempt as visited
-            visited_attempts.add((source_host, target))
+            visited_attempts.add((source_host,target))
 
         for port in ssh_ports:
             sshmap_logger.info(f"Scaning {target} port {port}.")
             # We can not check open ports if we are using a jump host, so we just try to connect to all ports
-            if current_depth > 1 or check_open_port(target, port):
+            if current_depth > 1 or await check_open_port(target, port):
                 sshmap_logger.info(f"[{target}] Port {port} is open, starting bruteforce...")
                 results = await bruteforce.try_all(target, port, maxworkers, jump, credential_store)
                 for res in results:
@@ -75,20 +70,27 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                             new_targets.extend(get_all_ips_in_subnet(remote_ip_cidr["ip"], remote_ip_cidr["mask"]))
                         # tests with 2 ips only
                         #new_targets = ["172.19.0.3","172.19.0.2"]
-                        sshmap_logger.display(f"We create a recursive now with remote_hostname {remote_hostname}, loaded {len(new_targets)} new targets")
+                        sshmap_logger.display(f"We create a recursive now with remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets")
                         for new_target in new_targets:
-                            await handle_target(
-                                    new_target,
-                                    maxworkers,
-                                    credential_store,
-                                    current_depth + 1,
-                                    jump=ssh_conn,
-                                )
-                        await ssh_conn.close()
+                            await queue.put((new_target, current_depth + 1, ssh_conn))
+                        # I dont know how to close the connection, if i close it here, the jump will fail.
+                        #await ssh_conn.close()
     except asyncio.CancelledError:
         print(f"{target} was cancelled in handle target.")
         raise
 
+async def worker(queue, semaphore, maxworkers, credential_store):
+    while True:
+        try:
+            target, depth, jumper = await queue.get()
+
+            async with semaphore:
+                await handle_target(target, maxworkers, credential_store, current_depth=depth, jump=jumper, queue=queue)
+
+        except asyncio.CancelledError:
+            break
+        finally:
+            queue.task_done()
 
 async def async_main(args):
     setup_debug_logging()
@@ -111,19 +113,23 @@ async def async_main(args):
     graph.add_host(start_host, start_ips)
 
     # Launch multiple tasks concurrently for all targets
-    tasks = [
-        asyncio.create_task(handle_target(target, args.maxworkers, credential_store, 1))
-        for target in targets
-    ]
+    queue = asyncio.Queue()
+    for target in targets:
+        await queue.put((target, 1, None))  # Initial targets, no jumper
+
+    semaphore = asyncio.Semaphore(args.maxworkers)
+    workers = [asyncio.create_task(worker(queue, semaphore, args.maxworkers, credential_store)) for _ in range(args.maxworkers)]
 
     try:
-        await asyncio.gather(*tasks)
+        await queue.join()  # Wait until all work is done
     except KeyboardInterrupt:
-        print("Ctrl+C received! Cancelling tasks...")
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        print("All tasks cancelled. Exiting cleanly.")
+        sshmap_logger.warn("Ctrl+C received! Cancelling...")
+    finally:
+        for w in workers:
+            w.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
+        graph.close()
+        sshmap_logger.success("All tasks completed.")
 
     graph.close()
     sshmap_logger.success("All tasks completed.")
