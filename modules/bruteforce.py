@@ -2,6 +2,7 @@ from .SSHSession import SSHSession
 from .logger import sshmap_logger
 import concurrent.futures
 import asyncio
+from .credential_store import CredentialStore, Credential
 
 
 class Result:
@@ -41,36 +42,49 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
         Result or None: Result object if authentication is successful, None otherwise.
     """
     try:
-        if credential["remote_ip"] == "_bruteforce" or (credential["remote_ip"] == host and credential["port"] == str(port)):
-            user = credential["user"]
-            if credential["method"] == "password":
-                password = credential["secret"]
-                try:
-                    sshmap_logger.info(f"Attempted password for {user}:{password}@{host}:{port}")
-                    ssh = SSHSession(host, user, password=password, port=port, jumper=jumper)
-                    if await asyncio.wait_for(ssh.connect(), timeout=5):
-                        sshmap_logger.highlight(f"{user}:{password}@{host}:{port}")
-                        # Store the credential in the CredentialStore
-                        credential_store.store(host, port, user, password, "password")
-                        return Result(user, "password", ssh, password)
-                except Exception:
-                    sshmap_logger.info(f"Failed to authenticate {user}@{host}:{port} with password: {password}")
-                    return None
-            elif credential["method"] == "keyfile":
-                keyfile = credential["secret"]
-                try:
-                    sshmap_logger.info(f"Attempted keyfile for {user}:{keyfile}@{host}:{port}")
-                    ssh = SSHSession(host, user, key_filename=keyfile, port=port, jumper=jumper)
-                    if await asyncio.wait_for(ssh.connect(), timeout=5):
-                        sshmap_logger.highlight(f"{user}:{keyfile}@{host}:{port}")
-                        # Store the credential in the CredentialStore
-                        credential_store.store(host, port, user, keyfile, "keyfile")
-                        return Result(user, "keyfile", ssh, keyfile)
-                except Exception:
-                    sshmap_logger.info(f"Failed to authenticate {user}@{host}:{port} with keyfile: {keyfile}")
-                    return None
+        user = credential.user
+        if credential.method == "password":
+            password = credential.secret
+            try:
+                sshmap_logger.info(
+                    f"Attempted password for {user}:{password}@{host}:{port}"
+                )
+                ssh = SSHSession(
+                    host, user, password=password, port=port, jumper=jumper
+                )
+                if await asyncio.wait_for(ssh.connect(), timeout=5):
+                    sshmap_logger.highlight(f"{user}:{password}@{host}:{port}")
+                    # Store the credential in the CredentialStore
+                    credential_store.store(host, port, user, password, "password")
+                    return Result(user, "password", ssh, password)
+            except Exception:
+                sshmap_logger.info(
+                    f"Failed to authenticate {user}@{host}:{port} with password: {password}"
+                )
+                return None
+        elif credential.method == "keyfile":
+            keyfile = credential.secret
+            try:
+                sshmap_logger.info(
+                    f"Attempted keyfile for {user}:{keyfile}@{host}:{port}"
+                )
+                ssh = SSHSession(
+                    host, user, key_filename=keyfile, port=port, jumper=jumper
+                )
+                if await asyncio.wait_for(ssh.connect(), timeout=5):
+                    sshmap_logger.highlight(f"{user}:{keyfile}@{host}:{port}")
+                    # Store the credential in the CredentialStore
+                    credential_store.store(host, port, user, keyfile, "keyfile")
+                    return Result(user, "keyfile", ssh, keyfile)
+            except Exception:
+                sshmap_logger.info(
+                    f"Failed to authenticate {user}@{host}:{port} with keyfile: {keyfile}"
+                )
+                return None
     except Exception as e:
-        sshmap_logger.error(f"Failed to authenticate {user}@{host}:{port}. Exception: {e}")
+        sshmap_logger.error(
+            f"Failed to authenticate {user}@{host}:{port}. Exception: {e}"
+        )
     return None
 
 async def try_all(host, port, maxworkers=10, jumper=None,credential_store=None):
@@ -91,7 +105,7 @@ async def try_all(host, port, maxworkers=10, jumper=None,credential_store=None):
     tasks = []
 
     # Schedule all credential attempts as async tasks
-    for credential in credential_store.get_all():
+    for credential in credential_store.get_credentials_host_and_bruteforce(host, port):
         task = asyncio.create_task(
             try_single_credential(host, port, credential, jumper=jumper, credential_store=credential_store)
         )

@@ -4,7 +4,7 @@ import os
 from modules import bruteforce, graphdb, key_scanner
 from modules.logger import sshmap_logger, setup_debug_logging
 from modules.config import CONFIG
-from modules.utils import get_local_info, get_remote_info, read_targets, check_open_port
+from modules.utils import get_local_info, get_remote_info, read_targets, check_open_port, get_all_ips_in_subnet
 from modules.credential_store import CredentialStore
 import signal
 
@@ -68,6 +68,10 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                     #keys_found = key_scanner.find_keys(ssh_conn)
                     #logger.info(f"[{target}] Keys found: {keys_found}")
                     # Close the SSH connection
+                    new_targets = []
+                    for remote_ip_cidr in remote_ips:
+                        new_targets.append(get_all_ips_in_subnet(remote_ip_cidr["ip"], remote_ip_cidr["mask"]))
+                    # tests with 2 ips only
                     new_targets = ["172.19.0.3","172.19.0.2"]
                     sshmap_logger.info(f"[{target}] We create a recursive now with remote_hostname {remote_hostname}")
                     for new_target in new_targets:
@@ -113,19 +117,13 @@ async def async_main(args):
     sshmap_logger.display(f"Starting attack on {len(targets)} targets with max depth {max_depth}")
     graph.add_host(start_host, start_ips)
 
-    target_queue = asyncio.Queue()
-    for target in targets:
-        await target_queue.put(target)
+    # Launch multiple tasks concurrently for all targets
+    tasks = [
+        asyncio.create_task(handle_target(target, args.maxworkers, credential_store, 1))
+        for target in targets
+    ]
 
-    tasks = []
-    for _ in range(args.threads):
-        task = asyncio.create_task(worker(target_queue, args.maxworkers, credential_store, 1))
-        tasks.append(task)
-
-    await target_queue.join()
-
-    for task in tasks:
-        task.cancel()
+    await asyncio.gather(*tasks)
 
     graph.close()
     sshmap_logger.success("All tasks completed.")

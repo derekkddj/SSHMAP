@@ -14,7 +14,7 @@ class SSHSession:
         self.port = port
         self.jumper = jumper
         self.connection = None  # Initialize the client as None
-        self.remote_hostname = None
+        self.remote_hostname = None # hostname of the machine were we are connected to
         if jumper:
             # jumper is an instance of SSHSession, get the transport ip from the jumper
             sshmap_logger.debug(f"[{host}:{port}] Using jumper {jumper}...")
