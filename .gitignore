@@ -1,5 +1,8 @@
 wordlists/*
-
+venv
+venv/
+venv_linux
+venv_linux/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -182,3 +185,4 @@ cython_debug/
 wordlists/passwords.txt
 modules/__pycache__/*.pyc
 modules/__pycache__/__init__.cpython-310.pyc
+modules/helpers/__pycache__/logger.cpython-310.pyc

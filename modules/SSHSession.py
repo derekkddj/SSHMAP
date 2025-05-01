@@ -3,6 +3,7 @@ import asyncio
 import logging
 from .logger import NXCAdapter
 from .utils import get_remote_info, get_remote_hostname
+from .config import CONFIG
 
 
 class SSHSession:
@@ -35,19 +36,19 @@ class SSHSession:
             # Direct connection or via jumper (proxy)
             if self.jumper:
                 if self.key_filename:
-                    self.connection = await asyncssh.connect(self.host, connect_timeout=15, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
+                    self.connection = await asyncssh.connect(self.host, connect_timeout=CONFIG["scan_timeout"], tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
                                                      password=self.password, known_hosts=None, client_keys=[self.key_filename])
                     self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
                 else:
-                    self.connection = await asyncssh.connect(self.host, connect_timeout=15, tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
+                    self.connection = await asyncssh.connect(self.host, connect_timeout=CONFIG["scan_timeout"], tunnel=self.jumper.get_connection(), agent_path=None, agent_forwarding=False, username=self.user, port=self.port, 
                                                      password=self.password, known_hosts=None, client_keys=None)
                     self.sshmap_logger.success(f"{self.user}:{self.password}")
             else:
                 if self.key_filename:
-                    self.connection = await asyncssh.connect(self.host, connect_timeout=15, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, known_hosts=None, client_keys=[self.key_filename])
+                    self.connection = await asyncssh.connect(self.host, connect_timeout=CONFIG["scan_timeout"], agent_path=None, agent_forwarding=False, username=self.user, port=self.port, known_hosts=None, client_keys=[self.key_filename])
                     self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
                 else:   
-                    self.connection = await asyncssh.connect(self.host, connect_timeout=15, agent_path=None, agent_forwarding=False, username=self.user, port=self.port, password=self.password, known_hosts=None, client_keys=None)
+                    self.connection = await asyncssh.connect(self.host, connect_timeout=CONFIG["scan_timeout"], agent_path=None, agent_forwarding=False, username=self.user, port=self.port, password=self.password, known_hosts=None, client_keys=None)
                     self.sshmap_logger.success(f"{self.user}:{self.password}")
             self.remote_hostname = await get_remote_hostname(self)
             return True

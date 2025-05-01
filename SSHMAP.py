@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+import sys
 from modules import bruteforce, graphdb, key_scanner
 from modules.logger import sshmap_logger, setup_debug_logging
 from modules.helpers.logger import highlight
@@ -19,7 +20,7 @@ graph = graphdb.GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j
 start_host, start_ips = get_local_info()
 ssh_ports = CONFIG["ssh_ports"]
 # Max depth for the ssh scan
-max_depth = 2
+max_depth = CONFIG["max_depth"]
 # Thread-safe function to handle a target
 
 console = Console()
@@ -187,7 +188,7 @@ def main():
     parser.add_argument("--credentialspath", default="wordlists/credentials.csv", help="Path to CSV credentials file, will populate users and passwords")
     parser.add_argument("--keys", default="wordlists/keys/", help="Path to directory with SSH private keys")
     parser.add_argument("--maxworkers", type=int, default=10, help="Number of workers for target")
-    parser.add_argument("--maxdepth", type=int, default=2, help="Depth of the scan")
+    parser.add_argument("--maxdepth", type=int, default=3, help="Depth of the scan")
     parser.add_argument("--debug", action="store_true", help="enable debug level information")
     parser.add_argument("--verbose", action="store_true", help="enable verbose output")
 
@@ -198,4 +199,8 @@ def main():
     
 
 if __name__ == "__main__":
+    if sys.platform.startswith("win"):
+        # Fix for Windows Proactor loop shutdown issues
+        import asyncio.windows_events
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     main()
