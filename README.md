@@ -37,6 +37,7 @@ It must contains the following config:
 neo4j_uri: "bolt://localhost:7687"
 neo4j_user: "neo4j"
 neo4j_pass: "neo4j"
+max_mask: 24
 
 # SSH scanning
 ssh_ports: [22,2222,2223]        # List of ports to scan

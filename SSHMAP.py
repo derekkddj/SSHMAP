@@ -64,11 +64,12 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                         #logger.info(f"[{target}] Keys found: {keys_found}")
                         # I need to create new jobs only if i have not used this jump before
                         if remote_hostname not in visited_attempts:
+                            
                             visited_attempts.add(remote_hostname)
                             new_targets = []
+                            
                             for remote_ip_cidr in remote_ips:
                                 new_targets.extend(get_all_ips_in_subnet(remote_ip_cidr["ip"], remote_ip_cidr["mask"]))
-                            
                             # remove duplicated targets
                             new_targets = list(set(new_targets))
                             # remove blacklisted ips
