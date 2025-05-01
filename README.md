@@ -31,17 +31,31 @@ Create a file in ~/.sshmap/config.yml
 
 It must contains the following config:
 ```YAML
-CONFIG = {
-    "neo4j_uri": "bolt://localhost:7687",
-    "neo4j_user": "neo4j",
-    "neo4j_pass": "your_password"
-}
+# config.yml
+
+# Neo4j database connection
+neo4j_uri: "bolt://localhost:7687"
+neo4j_user: "neo4j"
+neo4j_pass: "neo4j"
+
+# SSH scanning
+ssh_ports: [22,2222,2223]        # List of ports to scan
+
+# Optional settings
+scan_timeout: 5        # Timeout for SSH connection attempts (in seconds)
 
 ```
 
 ### Usage
+
+First run the Neo4J server, the easiest way is with docker:
 ```bash
-python main.py 10.0.0.1 10.0.0.2 --users wordlists/users.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+docker run --env=NEO4J_AUTH=none --publish=7474:7474 --publish=7687:7687 --volume=$HOME/neo4j/data:/data neo4j
+```
+
+Then run the program from your starting host.
+```bash
+python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 ```
 
 ### Generate Interactive Graph (HTML):
