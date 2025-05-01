@@ -40,7 +40,21 @@ services:
         ipv4_address: 172.19.0.3
     environment:
       - ROOT_PASSWORD=root
-    command: bash -c "echo 'root:root' | chpasswd && apt update && apt install -y iptables && iptables -P INPUT DROP && iptables -A INPUT -s 1>
+    command: bash -c "echo 'root:root' | chpasswd && apt update && apt install -y iptables net-tools && iptables -P INPUT DROP && iptables -A INPUT -s 172.19.0.2 -p tcp --dport 22 -j ACCEPT && /usr/sbin/sshd -D"
+    volumes:
+      - ./sshd_config:/etc/ssh/sshd_config
+    cap_add:
+      - NET_ADMIN
+  machine4:
+    image: rastasheep/ubuntu-sshd:18.04
+    container_name: machine4
+    hostname: machine4_SUPPERhidden
+    networks:
+      privnet:
+        ipv4_address: 172.19.0.4
+    environment:
+      - ROOT_PASSWORD=root
+    command: bash -c "echo 'root:root' | chpasswd && apt update && apt install -y iptables && iptables -P INPUT DROP && iptables -A INPUT -s 172.19.0.3 -p tcp --dport 22 -j ACCEPT && /usr/sbin/sshd -D"
     volumes:
       - ./sshd_config:/etc/ssh/sshd_config
     cap_add:

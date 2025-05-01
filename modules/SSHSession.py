@@ -61,6 +61,7 @@ class SSHSession:
         except Exception as e:
             self.sshmap_logger.error(f"Unexpected error for {self.user}@{self.host}: {type(e).__name__} - {e}")
             self.connection = None
+            return False
 
 
     async def get_jumper(self):

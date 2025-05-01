@@ -1,6 +1,7 @@
 # SSH Brute Project
 
-A modular Python tool for performing SSH bruteforce attacks, storing access relationships in a Neo4j graph, and visualizing them with an interactive web interface.
+A modular Python tool for performing SSH bruteforce attacks, storing access relationships in a Neo4j graph.
+There is a cli tool to get the paths from one starting point to other machines, and can creates que SSH commands to connect to the final machine.
 
 ## Features
 - 🔐 SSH bruteforce with passwords and private keys
@@ -8,9 +9,8 @@ A modular Python tool for performing SSH bruteforce attacks, storing access rela
 - 🪵 Standard Python logging
 - 🧩 Modular architecture
 - 🔁 Post-exploitation SSH key discovery
-- ⚡ Threaded scanning
+- ⚡ Async scanning, fast as it can be
 - 🖥️ CLI with argparse
-- 🌐 Web interface via FastAPI + PyVis
 
 ## Setup
 
@@ -27,8 +27,10 @@ pip install -r requirements.txt
 - wordlists/keys/ (SSH private keys)
 
 ### Configure Neo4j
-Edit ssh_brute_project/config.py:
-```JSON
+Create a file in ~/.sshmap/config.yml
+
+It must contains the following config:
+```YAML
 CONFIG = {
     "neo4j_uri": "bolt://localhost:7687",
     "neo4j_user": "neo4j",
