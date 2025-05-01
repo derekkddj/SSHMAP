@@ -125,7 +125,7 @@ def in_same_subnet(ip1, mask1, ip2, mask2):
     return net1.overlaps(net2)
 
 def get_all_ips_in_subnet(ip, mask):
-    mask = max(mask, CONFIG["max_mask"])
+    mask = max(mask, CONFIG["max_mask"] if CONFIG["max_mask"] else 24)
     network = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
     return [str(host) for host in network.hosts()]
 
