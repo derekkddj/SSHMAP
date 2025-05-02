@@ -131,11 +131,18 @@ def get_all_ips_in_subnet(ip, mask):
 
 async def check_open_port(ip, port, timeout=2):
     try:
-        return await asyncio.wait_for(
-            _check_open_port(ip, port),
-            timeout=timeout
-        )
+        # Create the task
+        task = asyncio.create_task(_check_open_port(ip, port))
+        
+        # Wait with a timeout
+        return await asyncio.wait_for(task, timeout=timeout)
+    
     except asyncio.TimeoutError:
+        # Timeout handling if the port check takes too long
+        return False
+    except Exception as e:
+        # Catch any other exceptions and handle them gracefully
+        sshmap_logger.debug(f"Error checking port {port} on {ip}: {e}")
         return False
 
 async def _check_open_port(ip, port):
