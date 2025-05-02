@@ -41,7 +41,7 @@ max_mask: 24
 
 # SSH scanning
 ssh_ports: [22,2222,2223]        # List of ports to scan
-
+max_depth: 3 #default max depth, not used now
 # Optional settings
 scan_timeout: 5        # Timeout for SSH connection attempts (in seconds)
 

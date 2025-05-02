@@ -63,7 +63,7 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                         #keys_found = key_scanner.find_keys(ssh_conn)
                         #logger.info(f"[{target}] Keys found: {keys_found}")
                         # I need to create new jobs only if i have not used this jump before
-                        if remote_hostname not in visited_attempts:
+                        if remote_hostname not in visited_attempts and current_depth < max_depth:
                             
                             visited_attempts.add(remote_hostname)
                             new_targets = []
@@ -74,8 +74,8 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                             new_targets = list(set(new_targets))
                             # remove blacklisted ips
                             new_targets = [ip for ip in new_targets if ip not in blacklist_ips]
-                            # tests with 2 ips only
-                            #new_targets = ["172.19.0.3","172.19.0.2"]
+                            # tests with 4 ips only, for docker tests
+                            new_targets = ["172.19.0.3","172.19.0.2","172.19.0.3","172.19.0.4"]
                             sshmap_logger.info(f"Curent-depth: {current_depth}, scaning from: {source_host} We create a recursive job, using remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets")
                             for new_target in new_targets:
                                 await queue.put((new_target, current_depth + 1, ssh_conn))
@@ -196,6 +196,15 @@ def main():
     args = parser.parse_args()
     global max_depth
     max_depth = args.maxdepth
+
+
+    sshmap_logger.debug("Starting async_main with args: %s", args)
+    # Check if Neo4J database is running
+    try:
+        graph.driver.verify_connectivity()
+    except Exception as e:
+        sshmap_logger.error(f"Neo4J connectivity check failed, check if it is running: {e}")
+        return
     asyncio.run(async_main(args))
     
 
