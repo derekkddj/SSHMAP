@@ -95,15 +95,14 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                             new_targets = list(set(new_targets))
                             # remove blacklisted ips
                             new_targets = [ip for ip in new_targets if ip not in blacklist_ips]
+                            # tests with 4 ips only, for docker tests
+                            new_targets = ["172.19.0.3","172.19.0.2","172.19.0.3","172.19.0.4"]
                             if progress and remote_hostname not in task_ids:
                                 task_ids[remote_hostname] = progress.add_task(
                                     description=f"Scanning {remote_hostname}",
                                     total=len(new_targets),  # or len(new_targets) if scanning IPs
                                     jump_host=remote_hostname
                                 )
-
-                            # tests with 4 ips only, for docker tests
-                            #new_targets = ["172.19.0.3","172.19.0.2","172.19.0.3","172.19.0.4"]
                             sshmap_logger.info(f"Curent-depth: {current_depth}, scaning from: {source_host} We create a recursive job, using remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets")
                             for new_target in new_targets:
                                 await queue.put((new_target, current_depth + 1, ssh_conn))
