@@ -1,9 +1,7 @@
 from .SSHSession import SSHSession
 from .logger import sshmap_logger
-import concurrent.futures
 import asyncio
 from .credential_store import CredentialStore, Credential
-import sys
 from .config import CONFIG
 
 
@@ -26,8 +24,7 @@ class Result:
         return self.ssh_session
 
 
-async def try_single_credential(host, port, credential, jumper=None, credential_store=None):
-    sshmap_logger.info(f"Attempting {credential.method} authentication for {credential.user}@{host}:{port}")
+async def try_single_credential(host, port, credential, jumper=None, credential_store=None): 
     """Class to attempt a single credential authentication.
     This function tries to authenticate using either a password or a keyfile.
     If successful, it stores the credential in the CredentialStore.
@@ -45,54 +42,55 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
     Returns:
         Result or None: Result object if authentication is successful, None otherwise.
     """
+    sshmap_logger.info(f"[START] Attempting {credential.method} authentication for {credential.user}@{host}:{port} | Jumper: {jumper}")
     try:
         user = credential.user
         if credential.method == "password":
             password = credential.secret
             try:
-                sshmap_logger.info(
-                    f"Attempted password for {user}:{password}@{host}:{port}"
+                sshmap_logger.debug(
+                    f"Trying password authentication for {user}:{password}@{host}:{port}"
                 )
                 ssh = SSHSession(
                     host, user, password=password, port=port, jumper=jumper
                 )
                 
                 if await asyncio.wait_for(ssh.connect(), timeout=CONFIG["scan_timeout"]):
-                    sshmap_logger.info(f"Successfully authenticated {user}:{password}@{host}:{port}, saving to CredentialStore")
+                    sshmap_logger.info(f"[SUCCESS] Password authentication succeeded for {user}:{password}@{host}:{port}, saving to CredentialStore")
                     # Store the credential in the CredentialStore
                     credential_store.store(host, port, user, password, "password")
                     return Result(user, "password", ssh, password)
                 
             except Exception:
-                sshmap_logger.info(
-                    f"Failed to authenticate {user}@{host}:{port} with password: {password}"
+                sshmap_logger.warning(
+                    f"[FAILED] Password authentication failed for {user}@{host}:{port} with password: {password} with exception: {e}"
                 )
                 return None
         elif credential.method == "keyfile":
             keyfile = credential.secret
             try:
                 sshmap_logger.info(
-                    f"Attempted keyfile for {user}:{keyfile}@{host}:{port}"
+                    f"[DEBUG] Trying keyfile authentication for {user}:{keyfile}@{host}:{port}"
                 )
                 ssh = SSHSession(
                     host, user, key_filename=keyfile, port=port, jumper=jumper
                 )
                 if await asyncio.wait_for(ssh.connect(), timeout=CONFIG["scan_timeout"]):
-                    sshmap_logger.info(f"Successfully authenticated {user}:{keyfile}@{host}:{port}, saving to CredentialStore")
+                    sshmap_logger.info(f"[SUCCESS] Keyfile authentication succeeded for {user}:{keyfile}@{host}:{port}, saving to CredentialStore")
                     # Store the credential in the CredentialStore
                     credential_store.store(host, port, user, keyfile, "keyfile")
                     return Result(user, "keyfile", ssh, keyfile)
             except Exception:
                 sshmap_logger.info(
-                    f"Failed to authenticate {user}@{host}:{port} with keyfile: {keyfile}"
+                    f"[FAILED] Keyfile authentication failed for {user}@{host}:{port} with keyfile: {keyfile} with exception: {e}"
                 )
                 return None
     except asyncio.CancelledError:
-        print(f"{host} bruteforce was cancelled.")
+        sshmap_logger.error(f"[{host}][CANCELLED] Brute force attempt was cancelled.")
         raise
     except Exception as e:
         sshmap_logger.error(
-            f"Failed to authenticate {user}@{host}:{port}. Exception: {e}"
+            f"[ERROR] Unexpected error during authentication for {user}@{host}:{port}. Exception: {e}"
         )
     return None
 
@@ -110,11 +108,17 @@ async def try_all(host, port, maxworkers=10, jumper=None,credential_store=None):
     Returns:
         list: List of Result objects for successful authentication attempts.
     """
+    sshmap_logger.info(
+        f"[START] Starting brute force attempts for {host}:{port} with max workers: {maxworkers}"
+    )
     results = []
     tasks = []
 
     # Schedule all credential attempts as async tasks
     for credential in credential_store.get_credentials_host_and_bruteforce(host, port):
+        sshmap_logger.debug(
+            f"[TASK] Scheduling authentication attempt for {credential.user}@{host}:{port} using {credential.method}"
+        )
         task = asyncio.create_task(
             try_single_credential(host, port, credential, jumper=jumper, credential_store=credential_store)
         )
@@ -124,14 +128,17 @@ async def try_all(host, port, maxworkers=10, jumper=None,credential_store=None):
     try:
         completed = await asyncio.gather(*tasks)
     except KeyboardInterrupt:
-        print("Ctrl+C received! Cancelling tasks...")
+        sshmap_logger.error("[INTERRUPT] Ctrl+C received! Cancelling all tasks...")
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        print("All tasks cancelled. Exiting cleanly.")  
+        sshmap_logger.error("[CANCELLED] All tasks cancelled. Exiting cleanly.")  
     # Filter successful results
     for result in completed:
         if result:
+            sshmap_logger.debug(
+                f"[RESULT] Successful authentication for {result.user}@{host}:{port} using {result.method}"
+            )
             results.append(result)
 
     return results

@@ -51,6 +51,9 @@ options:
 Attacking just one machine, and using it as a jump host:
 ![image](docs/media/ScanOneHost.png)
 
+End of the scan:
+
+![image](docs/media/scan_end.png)
 ## Setup
 
 ### Install Requirements
@@ -83,7 +86,7 @@ ssh_ports: [22,2222,2223]        # List of ports to scan
 max_depth: 3 #default max depth, not used now
 # Optional settings
 scan_timeout: 5        # Timeout for SSH connection attempts (in seconds)
-
+brute_new_credential: False # If True, every new credential will be saved as _bruteforce, so it will be used in next host regadless of the IP
 ```
 
 ### Usage
@@ -209,3 +212,10 @@ ssh_brute_project/
 │   ├── SSHSession.py     # Wrapper for a SSH connection with info about the "JUMP"
 │   └── utils.py          # Utils and functions
 ```
+### Future Work
+
+- [x] Progress bars
+- [ ] Create a better key_scanner, or credential_scanner, to search in new machines
+- [ ] Create POST-Explotation modules, like launch linpeas or linux exploit suggester
+- [ ] Better clean stop after Ctrl-C
+- [ ] Session manager, to close and create SSH tunnels bettter
