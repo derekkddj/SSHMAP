@@ -96,7 +96,7 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                             # remove blacklisted ips
                             new_targets = [ip for ip in new_targets if ip not in blacklist_ips]
                             # tests with 4 ips only, for docker tests
-                            #new_targets = ["172.19.0.3","172.19.0.2","172.19.0.3","172.19.0.4"]
+                            new_targets = ["172.19.0.3","172.19.0.2","172.19.0.3","172.19.0.4"]
                             if progress and remote_hostname not in task_ids:
                                 task_ids[remote_hostname] = progress.add_task(
                                     description=f"Scanning {remote_hostname}",
@@ -257,7 +257,7 @@ def main():
     parser.add_argument("--passwords", default="wordlists/passwords.txt", help="Path to the file with passwords for bruteforce")
     parser.add_argument("--credentialspath", default="wordlists/credentials.csv", help="Path to CSV credentials file, will populate users and passwords")
     parser.add_argument("--keys", default="wordlists/keys/", help="Path to directory with SSH private keys")
-    parser.add_argument("--maxworkers", type=int, default=10, help="Number of workers for target")
+    parser.add_argument("--maxworkers", type=int, default=100, help="Number of workers for target")
     parser.add_argument("--maxdepth", type=int, default=3, help="Depth of the scan")
     parser.add_argument("--debug", action="store_true", help="enable debug level information")
     parser.add_argument("--verbose", action="store_true", help="enable verbose output")
