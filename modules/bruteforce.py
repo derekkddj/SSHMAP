@@ -61,7 +61,7 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
                     credential_store.store(host, port, user, password, "password")
                     return Result(user, "password", ssh, password)
                 
-            except Exception:
+            except Exception as e:
                 sshmap_logger.warning(
                     f"[FAILED] Password authentication failed for {user}@{host}:{port} with password: {password} with exception: {e}"
                 )
@@ -80,7 +80,7 @@ async def try_single_credential(host, port, credential, jumper=None, credential_
                     # Store the credential in the CredentialStore
                     credential_store.store(host, port, user, keyfile, "keyfile")
                     return Result(user, "keyfile", ssh, keyfile)
-            except Exception:
+            except Exception as e:
                 sshmap_logger.info(
                     f"[FAILED] Keyfile authentication failed for {user}@{host}:{port} with keyfile: {keyfile} with exception: {e}"
                 )
