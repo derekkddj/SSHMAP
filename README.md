@@ -109,7 +109,7 @@ Firts go to http://localhost:7474/browser/preview/ and browse the data.
 
 ### Use the included CLI:
 
-There is a simple cli with its owns options. This tool is used to find paths between two nodes and to gerenate automatic SSH configurations to connect.
+There is a simple cli with its owns options. This tool is used to find paths between two nodes and to generate automatic SSH configurations to connect.
 ```bash
 $ python3 sshmap_cli.py --help
 usage: sshmap_cli.py [-h] [--all] [--max-depth MAX_DEPTH] [--write-config] [--method {proxyjump,proxycommand}] start end
