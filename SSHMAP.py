@@ -208,7 +208,6 @@ async def async_main(args):
             await asyncio.gather(*workers, return_exceptions=True)
             graph.close()
 
-        sshmap_logger.success("All tasks completed.")
         print_jumphosts(visited_attempts)
 
     sshmap_logger.success("All tasks completed.")
@@ -261,6 +260,7 @@ def main():
     parser.add_argument("--maxdepth", type=int, default=3, help="Depth of the scan")
     parser.add_argument("--debug", action="store_true", help="enable debug level information")
     parser.add_argument("--verbose", action="store_true", help="enable verbose output")
+    
 
     args = parser.parse_args()
     global max_depth
