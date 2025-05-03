@@ -96,7 +96,7 @@ async def handle_target(target, maxworkers, credential_store, current_depth, jum
                             # remove blacklisted ips
                             new_targets = [ip for ip in new_targets if ip not in blacklist_ips]
                             # tests with 4 ips only, for docker tests
-                            new_targets = ["172.19.0.3","172.19.0.2","172.19.0.3","172.19.0.4"]
+                            #new_targets = ["172.19.0.3","172.19.0.2","172.19.0.3","172.19.0.4"]
                             if progress and remote_hostname not in task_ids:
                                 task_ids[remote_hostname] = progress.add_task(
                                     description=f"Scanning {remote_hostname}",
