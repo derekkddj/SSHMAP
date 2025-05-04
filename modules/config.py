@@ -3,6 +3,7 @@ from .paths import SSHMAP_PATH
 from .logger import sshmap_logger
 import os
 
+
 class Config:
     def __init__(self, path=f"{SSHMAP_PATH}/config.yml"):
         # If file does not exist, create it with default values
@@ -13,16 +14,18 @@ class Config:
             # Create a default config file if it doesn't exist and save it
             # Create the directory if it doesn't exist
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            sshmap_logger.error(f"Config file not found at {path}. Creating a new one with default values.")
+            sshmap_logger.error(
+                f"Config file not found at {path}. Creating a new one with default values."
+            )
             self._config = {
                 "neo4j_uri": "bolt://localhost:7687",
                 "neo4j_user": "neo4j",
                 "neo4j_password": "neo4j",
                 "max_mask": 24,
-                "ssh_ports": [22,2222,2223],
+                "ssh_ports": [22, 2222, 2223],
                 "max_depth": 3,
                 "scan_timeout": 5,
-                "brute_new_credentials": False
+                "brute_new_credentials": False,
             }
             with open(path, "w") as f:
                 yaml.dump(self._config, f)
@@ -35,10 +38,10 @@ class Config:
 
     def get(self, key, default=None):
         return self._config.get(key, default)
-    
+
     def as_dict(self):
         return self._config
-        
+
 
 # Load once at import time
 CONFIG = Config()
