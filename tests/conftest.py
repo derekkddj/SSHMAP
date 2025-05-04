@@ -1,6 +1,7 @@
 import pytest
 from modules.credential_store import CredentialStore
 
+
 @pytest.fixture
 def dummy_store():
     store = CredentialStore()

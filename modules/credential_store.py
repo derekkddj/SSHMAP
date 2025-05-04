@@ -4,6 +4,7 @@ from threading import Lock
 from dataclasses import dataclass, asdict
 from .logger import sshmap_logger
 
+
 @dataclass(frozen=True, eq=True)
 class Credential:
     remote_ip: str
@@ -22,7 +23,7 @@ class Credential:
             port=data["port"],
             user=data["user"],
             secret=data["secret"],
-            method=data["method"]
+            method=data["method"],
         )
 
 
@@ -42,7 +43,9 @@ class CredentialStore:
 
     def _write_all(self, credentials):
         with open(self.path, mode="w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["remote_ip", "port", "user", "secret", "method"])
+            writer = csv.DictWriter(
+                f, fieldnames=["remote_ip", "port", "user", "secret", "method"]
+            )
             writer.writeheader()
             writer.writerows([cred.to_dict() for cred in credentials])
 
@@ -52,7 +55,7 @@ class CredentialStore:
             port=str(port),
             user=user,
             secret=secret,
-            method=method
+            method=method,
         )
         with self.lock:
             if new_cred not in self.credentials:
@@ -71,7 +74,9 @@ class CredentialStore:
 
     def get_triplets(self):
         with self.lock:
-            return list({(cred.user, cred.secret, cred.method) for cred in self.credentials})
+            return list(
+                {(cred.user, cred.secret, cred.method) for cred in self.credentials}
+            )
 
     def get_credentials_host_and_bruteforce(self, host, port):
         """Return credentials if:
@@ -84,7 +89,9 @@ class CredentialStore:
             results = []
 
             for cred in self.credentials:
-                if ((cred.remote_ip == host and cred.port == str(port)) or cred.remote_ip == "_bruteforce"):
+                if (
+                    cred.remote_ip == host and cred.port == str(port)
+                ) or cred.remote_ip == "_bruteforce":
                     key = (cred.user, cred.secret, cred.method)
                     if key not in seen:
                         seen.add(key)
@@ -95,14 +102,16 @@ class CredentialStore:
     def find(self, remote_ip, port):
         with self.lock:
             return [
-                cred for cred in self.credentials
+                cred
+                for cred in self.credentials
                 if cred.remote_ip == remote_ip and cred.port == str(port)
             ]
 
     def delete_credentials(self, remote_ip, port):
         with self.lock:
             self.credentials = [
-                cred for cred in self.credentials
+                cred
+                for cred in self.credentials
                 if not (cred.remote_ip == remote_ip and cred.port == str(port))
             ]
             self._write_all(self.credentials)

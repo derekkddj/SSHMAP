@@ -6,6 +6,7 @@ import os
 
 # graphdb.py
 
+
 class GraphDB:
     def __init__(self, uri, user, password):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
@@ -13,7 +14,9 @@ class GraphDB:
     def close(self):
         self.driver.close()
 
-    def write_ssh_config_for_path(self, start, end, method="proxyjump", config_path="/tmp/sshmap_config"):
+    def write_ssh_config_for_path(
+        self, start, end, method="proxyjump", config_path="/tmp/sshmap_config"
+    ):
         """
         Generates an SSH config file to connect from start to end using recorded jump path.
 
@@ -58,10 +61,10 @@ class GraphDB:
                 proxy_cmd = ""
                 for i in range(len(host_aliases) - 1, -1, -1):
                     alias, meta = host_aliases[i]
-                    host = meta['ip']
-                    port = meta['port']
-                    user = meta['user']
-                    ssh_part = f"ssh -o StrictHostKeyChecking=no -W %h:%p {user}@{host} "
+                    host = meta["ip"]
+                    port = meta["port"]
+                    user = meta["user"]
+                    ssh_part = f"ssh -o StrictHostKeyChecking=no -p {port} -W %h:%p {user}@{host} "
                     if i != len(host_aliases) - 1:
                         ssh_part += f"-o ProxyCommand='{proxy_cmd}'"
                     proxy_cmd = ssh_part
@@ -69,7 +72,7 @@ class GraphDB:
                 f.write(f"    ProxyCommand {proxy_cmd}\n")
             else:
                 raise ValueError("Unsupported method. Use 'jump' or 'command'.")
-            
+
             f.write("\n")
 
         os.chmod(config_path, 0o600)
@@ -83,11 +86,15 @@ class GraphDB:
         Also returns connection metadata from each hop.
         """
         with self.driver.session() as session:
-            result = session.run("""
+            result = session.run(
+                """
                 MATCH (start:Host {hostname: $start}), (end:Host {hostname: $end})
                 MATCH path = shortestPath((start)-[rels:SSH_ACCESS*..15]->(end))
                 RETURN nodes(path) AS nodes, rels AS relationships
-            """, start=start_hostname, end=end_hostname)
+            """,
+                start=start_hostname,
+                end=end_hostname,
+            )
 
             for record in result:
                 nodes = record["nodes"]
@@ -104,7 +111,7 @@ class GraphDB:
                         "method": rel.get("method"),
                         "creds": rel.get("creds"),
                         "ip": rel.get("ip"),
-                        "port": rel.get("port")
+                        "port": rel.get("port"),
                     }
                     full_path.append((src, meta, dst))
 
@@ -118,19 +125,23 @@ class GraphDB:
         Includes metadata for each hop along the path.
         """
         with self.driver.session() as session:
-            result = session.run(f"""
+            result = session.run(
+                f"""
                 MATCH path = (start:Host {{hostname: $start}})-[:SSH_ACCESS*1..{max_depth}]->(end:Host {{hostname: $end}})
                 RETURN path
-            """, start=start_hostname, end=end_hostname)
-            
+            """,
+                start=start_hostname,
+                end=end_hostname,
+            )
+
             # Process each path returned and format it with metadata
             all_paths = []
             for record in result:
                 formatted_path = self._format_path_with_metadata(record["path"])
                 all_paths.append(formatted_path)
-            
+
             return all_paths
-        
+
     def add_host(self, hostname, ip_info):
         """
         Store host with multiple IPs and subnet masks in CIDR notation.
@@ -139,27 +150,42 @@ class GraphDB:
         # Convert IP/mask pairs to CIDR notation (e.g., '192.168.1.10/24')
         cidr_info = [f"{iface['ip']}/{iface['mask']}" for iface in ip_info]
         with self.driver.session() as session:
-            session.run("""
+            session.run(
+                """
                 MERGE (h:Host {hostname: $hostname})
                 SET h.interfaces = $cidr_info
-            """, hostname=hostname, cidr_info=cidr_info)
+            """,
+                hostname=hostname,
+                cidr_info=cidr_info,
+            )
 
-    def add_ssh_connection(self, from_hostname, to_hostname, user, method,creds,ip,port):
+    def add_ssh_connection(
+        self, from_hostname, to_hostname, user, method, creds, ip, port
+    ):
         with self.driver.session() as session:
-            session.run("""
+            session.run(
+                """
                 MATCH (src:Host {hostname: $from_hostname})
                 MATCH (dst:Host {hostname: $to_hostname})
                 MERGE (src)-[r:SSH_ACCESS {user: $user, method: $method, creds: $creds, ip: $ip, port:$port}]->(dst)
-            """, from_hostname=from_hostname, to_hostname=to_hostname, user=user, method=method, creds=creds, ip=ip, port=port)
-
-
+            """,
+                from_hostname=from_hostname,
+                to_hostname=to_hostname,
+                user=user,
+                method=method,
+                creds=creds,
+                ip=ip,
+                port=port,
+            )
 
     def find_hosts_in_same_subnet(self, ip, mask):
         target_net = ip_network(f"{ip}/{mask}", strict=False)
         matching_hosts = []
 
         with self.driver.session() as session:
-            result = session.run("MATCH (h:Host) RETURN h.hostname AS hostname, h.interfaces AS interfaces")
+            result = session.run(
+                "MATCH (h:Host) RETURN h.hostname AS hostname, h.interfaces AS interfaces"
+            )
             for record in result:
                 hostname = record["hostname"]
                 interfaces = record["interfaces"] or []
@@ -174,7 +200,6 @@ class GraphDB:
                         continue
 
         return list(set(matching_hosts))
-
 
     def _format_path(self, path):
         """

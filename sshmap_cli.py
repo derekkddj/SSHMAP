@@ -6,6 +6,7 @@ from modules.graphdb import GraphDB
 
 console = Console()
 
+
 def print_detailed_path(path, index=None):
     steps = []
     for src, meta, dst in path:
@@ -18,17 +19,33 @@ def print_detailed_path(path, index=None):
             f"[blue]port:[/blue] {meta['port']}"
         )
         steps.append(segment)
-    title = f"[green]Shortest SSH Path[/green]" if index is None else f"[green]Path #{index + 1}[/green]"
+    title = (
+        "[green]Shortest SSH Path[/green]"
+        if index is None
+        else f"[green]Path #{index + 1}[/green]"
+    )
     console.print(Panel.fit("\n\n".join(steps), title=title))
+
 
 def main():
     parser = argparse.ArgumentParser(description="SSH Path Visualizer")
     parser.add_argument("start", help="Starting hostname")
     parser.add_argument("end", help="Target hostname")
-    parser.add_argument("--all", action="store_true", help="Show all paths (default: only one)")
-    parser.add_argument("--max-depth", type=int, default=5, help="Max path depth (for --all)")
-    parser.add_argument("--write-config", action="store_true", help="Write SSH config file to /tmp")
-    parser.add_argument("--method", choices=["proxyjump", "proxycommand"], default="proxyjump", help="SSH config method")
+    parser.add_argument(
+        "--all", action="store_true", help="Show all paths (default: only one)"
+    )
+    parser.add_argument(
+        "--max-depth", type=int, default=5, help="Max path depth (for --all)"
+    )
+    parser.add_argument(
+        "--write-config", action="store_true", help="Write SSH config file to /tmp"
+    )
+    parser.add_argument(
+        "--method",
+        choices=["proxyjump", "proxycommand"],
+        default="proxyjump",
+        help="SSH config method",
+    )
 
     args = parser.parse_args()
 
@@ -48,12 +65,19 @@ def main():
             else:
                 print_detailed_path(path)
                 if args.write_config:
-                    config_path = db.write_ssh_config_for_path(args.start, args.end, method=args.method)
+                    config_path = db.write_ssh_config_for_path(
+                        args.start, args.end, method=args.method
+                    )
                     if config_path:
-                        console.print(f"[green]SSH config written to[/green] {config_path}")
-                        console.print(f"[yellow]Usage:[/yellow] ssh -F {config_path} target")
+                        console.print(
+                            f"[green]SSH config written to[/green] {config_path}"
+                        )
+                        console.print(
+                            f"[yellow]Usage:[/yellow] ssh -F {config_path} target"
+                        )
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     main()
