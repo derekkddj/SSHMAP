@@ -1,6 +1,5 @@
 from neo4j import GraphDatabase
 from ipaddress import ip_network
-from pathlib import Path
 import os
 
 
