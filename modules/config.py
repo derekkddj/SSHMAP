@@ -1,5 +1,6 @@
 import yaml
 from .paths import SSHMAP_PATH
+from .logger import sshmap_logger
 
 class Config:
     def __init__(self, path=f"{SSHMAP_PATH}/config.yml"):
@@ -9,6 +10,7 @@ class Config:
                 self._config = yaml.safe_load(f)
         except FileNotFoundError:
             # Create a default config file if it doesn't exist and save it
+            sshmap_logger.error(f"Config file not found at {path}. Creating a new one with default values.")
             self._config = {
                 "neo4j_uri": "bolt://localhost:7687",
                 "neo4j_user": "neo4j",
