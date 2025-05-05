@@ -59,6 +59,28 @@ services:
       - ./sshd_config:/etc/ssh/sshd_config
     cap_add:
       - NET_ADMIN
+  machine5:
+    image: rastasheep/ubuntu-sshd:18.04
+    container_name: machine5
+    hostname: machine5_onlykey
+    networks:
+      hostnet:
+    ports:
+      - "2224:22"
+    environment:
+      - AUTHORIZED_KEYS=/root/.ssh/authorized_keys
+    command: >
+      bash -c "
+        mkdir -p /root/.ssh &&
+        chmod 700 /root/.ssh &&
+        cp /authorized_keys /root/.ssh/authorized_keys &&
+        chmod 600 /root/.ssh/authorized_keys &&
+        chown root:root /root/.ssh/authorized_keys &&
+        /usr/sbin/sshd -D
+      "
+    volumes:
+      - ./sshd_config_key:/etc/ssh/sshd_config:ro
+      - ./authorized_keys:/authorized_keys:ro
 
 networks:
   hostnet:

@@ -153,6 +153,7 @@ async def handle_target(
                                 "172.19.0.2",
                                 "172.19.0.3",
                                 "172.19.0.4",
+                                "172.19.0.5",
                             ]
                             if progress and remote_hostname not in task_ids:
                                 task_ids[remote_hostname] = progress.add_task(
