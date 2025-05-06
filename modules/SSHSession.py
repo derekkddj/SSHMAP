@@ -109,7 +109,7 @@ class SSHSession:
             return False
         except Exception as e:
             self.sshmap_logger.error(
-                f"Unexpected error for {self.user}@{self.host}:{self.port} {type(e).__name__} - {e.reason}"
+                f"Unexpected error for {self.user}@{self.host}:{self.port} {type(e).__name__} - {e}"
             )
             self.connection = None
             return False
