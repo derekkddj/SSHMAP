@@ -101,7 +101,7 @@ class SSHSession:
             )
             return False
         except asyncssh.ChannelOpenError as e:
-            self.sshmap_logger.error(
+            self.sshmap_logger.info(
                 f"ChannelOpenError with:{self.user}:{self.password if self.password else self.key_filename} to {self.host}:{self.port} with jump host {self.jumper.get_host() if self.jumper else None}, Error: {e.reason}"
             )
             return False
