@@ -24,7 +24,7 @@ class Config:
                 "max_mask": 24,
                 "ssh_ports": [22, 2222, 2223],
                 "max_depth": 1,
-                "scan_timeout": 5,
+                "scan_timeout": 10,
                 "brute_new_credentials": False,
             }
             with open(path, "w") as f:

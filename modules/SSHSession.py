@@ -126,7 +126,7 @@ class SSHSession:
         try:
             result = await self.connection.run(command)
             return result.stdout
-        except asyncssh.SSHException as e:
+        except Exception as e:
             self.sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
             return None
 
@@ -138,7 +138,7 @@ class SSHSession:
         try:
             result = await self.connection.run(command)
             return result.stdout, result.stderr
-        except asyncssh.SSHException as e:
+        except Exception as e:
             self.sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
             return None
 
