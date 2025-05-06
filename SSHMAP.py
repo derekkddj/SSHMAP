@@ -149,7 +149,7 @@ async def handle_target(
                                 ip for ip in new_targets if ip not in blacklist_ips
                             ]
                             # tests with 4 ips only, for docker tests
-                            """
+                            
                             new_targets = [
                                 "172.19.0.2",
                                 "172.19.0.3",
@@ -158,7 +158,7 @@ async def handle_target(
                                 "172.19.0.106",
                                 "172.19.0.107",
                             ]
-                            """
+                            
                             if progress and remote_hostname not in task_ids:
                                 task_ids[remote_hostname] = progress.add_task(
                                     description=f"Scanning {remote_hostname}",
@@ -211,7 +211,7 @@ async def async_main(args):
     setup_debug_logging()
     credential_store = CredentialStore(args.credentialspath)
     targets = read_targets(args.targets)
-
+    
     with open(args.users) as f:
         users = [line.strip() for line in f if line.strip()]
     with open(args.passwords) as f:
@@ -220,9 +220,10 @@ async def async_main(args):
 
     for user in users:
         for password in passwords:
-            credential_store.store("_bruteforce", 22, user, password, "password")
+            await credential_store.store("_bruteforce", 22, user, password, "password")
         for keyfile in keyfiles:
-            credential_store.store("_bruteforce", 22, user, keyfile, "keyfile")
+            await credential_store.store("_bruteforce", 22, user, keyfile, "keyfile")
+    # Preload keys from the directory
 
     sshmap_logger.display(
         f"Starting attack on {len(targets)} targets with max depth {max_depth}"

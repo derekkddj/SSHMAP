@@ -7,7 +7,7 @@ from .config import CONFIG
 
 class SSHSession:
     def __init__(
-        self, host, user, password=None, key_filename=None, port=22, jumper=None
+        self, host, user, password=None, key_filename=None, port=22, jumper=None, key_objects=None
     ):
         # If jump_session is provided, use it for the connection. Must be SSHSession instance.
         self.host = host
@@ -18,6 +18,7 @@ class SSHSession:
         self.jumper = jumper
         self.connection = None  # Initialize the client as None
         self.remote_hostname = None  # hostname of the machine were we are connected to
+        self.key_objects = key_objects
         logging.getLogger("asyncssh").disabled = True
         self.sshmap_logger = NXCAdapter(
             extra={
@@ -39,6 +40,7 @@ class SSHSession:
             # Direct connection or via jumper (proxy)
             if self.jumper:
                 if self.key_filename:
+                    key_obj = self.key_objects.get(self.key_filename)
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
@@ -47,9 +49,8 @@ class SSHSession:
                         agent_forwarding=False,
                         username=self.user,
                         port=self.port,
-                        password=self.password,
                         known_hosts=None,
-                        client_keys=[self.key_filename],
+                        client_keys=[key_obj],
                     )
                     self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
                 else:
@@ -68,6 +69,7 @@ class SSHSession:
                     self.sshmap_logger.success(f"{self.user}:{self.password}")
             else:
                 if self.key_filename:
+                    key_obj = self.key_objects.get(self.key_filename)
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
@@ -76,7 +78,7 @@ class SSHSession:
                         username=self.user,
                         port=self.port,
                         known_hosts=None,
-                        client_keys=[self.key_filename],
+                        client_keys=[key_obj],
                     )
                     self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
                 else:

@@ -4,6 +4,7 @@ import ipaddress
 from .logger import sshmap_logger
 from .config import CONFIG
 import asyncio
+import asyncssh
 
 
 def read_targets(file_path):
@@ -43,6 +44,15 @@ def netmask_to_cidr(netmask):
     """Convert dotted-decimal netmask to CIDR notation."""
     return sum([bin(int(x)).count("1") for x in netmask.split(".")])
 
+def preload_key(key_filename):
+    """
+    Loads a single private key using asyncssh.
+    """
+    try:
+        return asyncssh.read_private_key(key_filename)
+    except (asyncssh.KeyImportError, asyncssh.KeyEncryptionError) as e:
+        sshmap_logger.error(f"[!] Could not load key {key_filename}: {e}")
+        return None
 
 # ssh_client is an instance of SSHSession
 async def get_remote_hostname(ssh_client):

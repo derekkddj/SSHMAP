@@ -3,6 +3,7 @@ import os
 from threading import Lock
 from dataclasses import dataclass, asdict
 from .logger import sshmap_logger
+from .utils import preload_key
 
 
 @dataclass(frozen=True, eq=True)
@@ -27,10 +28,12 @@ class Credential:
         )
 
 
+
 class CredentialStore:
     def __init__(self, path="wordlists/valid_credentials.csv"):
         self.path = path
         self.lock = Lock()
+        self.key_objects = {}
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self.credentials = self._read_all()
 
@@ -49,7 +52,7 @@ class CredentialStore:
             writer.writeheader()
             writer.writerows([cred.to_dict() for cred in credentials])
 
-    def store(self, remote_ip, port, user, secret, method):
+    async def store(self, remote_ip, port, user, secret, method):
         new_cred = Credential(
             remote_ip=str(remote_ip),
             port=str(port),
@@ -61,6 +64,11 @@ class CredentialStore:
             if new_cred not in self.credentials:
                 self.credentials.append(new_cred)
                 self._write_all(self.credentials)
+            if new_cred.method == "keyfile":
+                    if secret not in self.key_objects:
+                        key_obj = preload_key(secret)
+                        if key_obj:
+                            self.key_objects[secret] = key_obj
             else:
                 sshmap_logger.debug(f"Credential already exists: {new_cred}")
 
