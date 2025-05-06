@@ -55,7 +55,7 @@ async def get_remote_hostname(ssh_client):
             else ssh_client.connection.get_extra_info("peername")[0]
         )
     except AttributeError as e:
-        sshmap_logger.error(f"Failed toto get attribute: {e}")
+        sshmap_logger.error(f"Failed to get attribute: {e}")
         hostname = ssh_client.host
     except Exception as e:
         sshmap_logger.error(f"Failed to get hostname: {type(e).__name__} - {e}")

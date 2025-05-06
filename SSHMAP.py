@@ -130,6 +130,7 @@ async def handle_target(
                         if (
                             remote_hostname not in visited_attempts
                             and current_depth < max_depth
+                            and remote_hostname != start_host
                         ):
 
                             visited_attempts.add(remote_hostname)
