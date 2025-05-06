@@ -31,8 +31,8 @@ class GraphDB:
 
         with open(config_path, "w") as f:
             host_aliases = []
-
-            for idx, (src, meta, dst) in enumerate(path):
+            # Write jump hosts (excluding the last one which is the final target)
+            for idx, (src, meta, dst) in enumerate(path[:-1]):
                 alias = f"jump{idx}"
                 host_aliases.append((alias, meta))
 
@@ -40,17 +40,20 @@ class GraphDB:
                 f.write(f"    HostName {meta['ip']}\n")
                 f.write(f"    User {meta['user']}\n")
                 f.write(f"    Port {meta['port']}\n")
-                # Optional: f.write(f"    IdentityFile {meta.get('key_path', '')}\n")
+                if 'keyfile' in meta['method']:
+                    f.write(f"    IdentityFile {meta['creds']}\n")
                 f.write("\n")
 
-            # Write the final target
+            # Final hop is the actual target
             final_alias = "target"
-            final_meta = path[-1][1]
+            _, final_meta, _ = path[-1]
 
             f.write(f"Host {final_alias}\n")
             f.write(f"    HostName {final_meta['ip']}\n")
             f.write(f"    User {final_meta['user']}\n")
             f.write(f"    Port {final_meta['port']}\n")
+            if 'keyfile' in meta['method']:
+                    f.write(f"    IdentityFile {meta['creds']}\n")
 
             if method == "proxyjump":
                 jump_chain = " ".join(alias for alias, _ in host_aliases)
@@ -63,7 +66,10 @@ class GraphDB:
                     host = meta["ip"]
                     port = meta["port"]
                     user = meta["user"]
+                    key_path = meta['method']
                     ssh_part = f"ssh -o StrictHostKeyChecking=no -p {port} -W %h:%p {user}@{host} "
+                    if "keyfile" in key_path:
+                        ssh_part += f"-i {meta['creds']} "
                     if i != len(host_aliases) - 1:
                         ssh_part += f"-o ProxyCommand='{proxy_cmd}'"
                     proxy_cmd = ssh_part
