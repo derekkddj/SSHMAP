@@ -46,20 +46,16 @@ async def try_single_credential(
     sshmap_logger.info(
         f"[START] Attempting {credential.method} authentication for {credential.user}@{host}:{port} | Jumper: {jumper}"
     )
-    if host == "172.19.0.3" or host == "172.19.0.2":
-        sshmap_logger.display(
-            f"[WARNING] Doing authentication for {host}:{port} with {credential.method} for {credential.user} | Jumper: {jumper.host if jumper else None}"
-        )
     try:
         user = credential.user
         if credential.method == "password":
             password = credential.secret
             try:
                 sshmap_logger.debug(
-                    f"Trying password authentication for {user}:{password}@{host}:{port}"
+                    f"[DEBUG] Trying password authentication for {user}:{password}@{host}:{port}"
                 )
                 ssh = SSHSession(
-                    host, user, password=password, port=port, jumper=jumper
+                    host, user, password=password, port=port, jumper=jumper, key_objects=credential_store.key_objects
                 )
 
                 if await asyncio.wait_for(
@@ -69,7 +65,7 @@ async def try_single_credential(
                         f"[SUCCESS] Password authentication succeeded for {user}:{password}@{host}:{port}, saving to CredentialStore"
                     )
                     # Store the credential in the CredentialStore
-                    credential_store.store(host, port, user, password, "password")
+                    await credential_store.store(host, port, user, password, "password")
                     return Result(user, "password", ssh, password)
             except asyncio.TimeoutError:
                 sshmap_logger.warning(
@@ -83,12 +79,13 @@ async def try_single_credential(
                 return None
         elif credential.method == "keyfile":
             keyfile = credential.secret
+            sshmap_logger.info(f"[INFO] Keyfile authentication method selected, keyfile {keyfile} and key_obj: {credential_store.key_objects.get(keyfile)}")
             try:
-                sshmap_logger.info(
+                sshmap_logger.debug(
                     f"[DEBUG] Trying keyfile authentication for {user}:{keyfile}@{host}:{port}"
                 )
                 ssh = SSHSession(
-                    host, user, key_filename=keyfile, port=port, jumper=jumper
+                    host, user, key_filename=keyfile, port=port, jumper=jumper, key_objects=credential_store.key_objects
                 )
                 if await asyncio.wait_for(
                     ssh.connect(), timeout=CONFIG["scan_timeout"]
@@ -97,7 +94,7 @@ async def try_single_credential(
                         f"[SUCCESS] Keyfile authentication succeeded for {user}:{keyfile}@{host}:{port}, saving to CredentialStore"
                     )
                     # Store the credential in the CredentialStore
-                    credential_store.store(host, port, user, keyfile, "keyfile")
+                    await credential_store.store(host, port, user, keyfile, "keyfile")
                     return Result(user, "keyfile", ssh, keyfile)
             except asyncio.TimeoutError:
                 sshmap_logger.warning(
