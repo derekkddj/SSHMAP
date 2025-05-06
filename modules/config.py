@@ -23,7 +23,7 @@ class Config:
                 "neo4j_password": "neo4j",
                 "max_mask": 24,
                 "ssh_ports": [22, 2222, 2223],
-                "max_depth": 3,
+                "max_depth": 1,
                 "scan_timeout": 5,
                 "brute_new_credentials": False,
             }

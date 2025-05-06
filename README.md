@@ -43,7 +43,6 @@ options:
 - 🗃️ Neo4j integration
 - 🪵 Standard Python logging
 - 🧩 Modular architecture
-- 🔁 Post-exploitation SSH key discovery
 - ⚡ Async scanning, fast as it can be
 - 🖥️ CLI with argparse
 
@@ -83,7 +82,7 @@ max_mask: 24
 
 # SSH scanning
 ssh_ports: [22,2222,2223]        # List of ports to scan
-max_depth: 3 #default max depth, not used now
+max_depth: 1 #default max depth
 # Optional settings
 scan_timeout: 5        # Timeout for SSH connection attempts (in seconds)
 brute_new_credential: False # If True, every new credential will be saved as _bruteforce, so it will be used in next host regadless of the IP
@@ -215,7 +214,7 @@ ssh_brute_project/
 ### Future Work
 
 - [x] Progress bars
-- [ ] Create a better key_scanner, or credential_scanner, to search in new machines
+- [ ] Create a key_scanner, or credential_scanner, to search in new machines
 - [ ] Create POST-Explotation modules, like launch linpeas or linux exploit suggester
 - [ ] Better clean stop after Ctrl-C
 - [ ] Session manager, to close and create SSH tunnels bettter
