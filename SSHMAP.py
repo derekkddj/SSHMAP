@@ -151,11 +151,12 @@ async def handle_target(
                             # tests with 4 ips only, for docker tests
                             """
                             new_targets = [
-                                "172.19.0.3",
                                 "172.19.0.2",
                                 "172.19.0.3",
                                 "172.19.0.4",
                                 "172.19.0.5",
+                                "172.19.0.106",
+                                "172.19.0.107",
                             ]
                             """
                             if progress and remote_hostname not in task_ids:

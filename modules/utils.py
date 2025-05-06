@@ -58,7 +58,7 @@ async def get_remote_hostname(ssh_client):
         sshmap_logger.error(f"Failed to get attribute: {e}")
         hostname = ssh_client.host
     except Exception as e:
-        sshmap_logger.error(f"Failed to get hostname: {type(e).__name__} - {e}")
+        sshmap_logger.error(f"Failed to get hostname from {ssh_client.host}: {type(e).__name__} - {e}")
         hostname = ssh_client.host
     return hostname
 
