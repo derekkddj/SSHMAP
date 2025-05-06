@@ -9,7 +9,7 @@ class SSHSession:
     def __init__(
         self, host, user, password=None, key_filename=None, port=22, jumper=None
     ):
-        # If jump_session is provided, use it for the connection. Must be SSHJumpClient instance.
+        # If jump_session is provided, use it for the connection. Must be SSHSession instance.
         self.host = host
         self.user = user
         self.password = password
@@ -100,14 +100,14 @@ class SSHSession:
                 f"{self.user}:{self.password if self.password else self.key_filename}"
             )
             return False
-        except asyncssh.ChannelOpenError:
-            self.sshmap_logger.info(
-                f"{self.user}:{self.password if self.password else self.key_filename}"
+        except asyncssh.ChannelOpenError as e:
+            self.sshmap_logger.error(
+                f"ChannelOpenError with:{self.user}:{self.password if self.password else self.key_filename} to {self.host}:{self.port} with jump host {self.jumper.get_host() if self.jumper else None}, Error: {e.reason}"
             )
             return False
         except Exception as e:
             self.sshmap_logger.error(
-                f"Unexpected error for {self.user}@{self.host}: {type(e).__name__} - {e}"
+                f"Unexpected error for {self.user}@{self.host}:{self.port} {type(e).__name__} - {e.reason}"
             )
             self.connection = None
             return False
@@ -123,24 +123,18 @@ class SSHSession:
         if self.connection is None:
             raise ValueError("SSH connection is not established.")
 
-        try:
-            result = await self.connection.run(command)
-            return result.stdout
-        except Exception as e:
-            self.sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
-            return None
+        result = await self.connection.run(command)
+        return result.stdout
+
 
     async def exec_command_with_stderr(self, command):
         """Execute command on remote machine."""
         if self.connection is None:
             raise ValueError("SSH connection is not established.")
 
-        try:
-            result = await self.connection.run(command)
-            return result.stdout, result.stderr
-        except Exception as e:
-            self.sshmap_logger.error(f"Command execution failed on {self.host}: {e}")
-            return None
+        result = await self.connection.run(command)
+        return result.stdout, result.stderr
+
 
     async def close(self):
         """Close the SSH connection."""
