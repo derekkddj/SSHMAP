@@ -64,9 +64,8 @@ services:
     container_name: machine5
     hostname: machine5_onlykey
     networks:
-      hostnet:
-    ports:
-      - "2224:22"
+      privnet:
+        ipv4_address: 172.19.0.5
     environment:
       - AUTHORIZED_KEYS=/root/.ssh/authorized_keys
     command: >
@@ -76,11 +75,18 @@ services:
         cp /authorized_keys /root/.ssh/authorized_keys &&
         chmod 600 /root/.ssh/authorized_keys &&
         chown root:root /root/.ssh/authorized_keys &&
+        apt update && apt install -y iptables &&
+        iptables -P INPUT DROP &&
+        iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT &&
+        iptables -A INPUT -s 172.19.0.2 -p tcp --dport 22 -j ACCEPT &&
         /usr/sbin/sshd -D
       "
     volumes:
       - ./sshd_config_key:/etc/ssh/sshd_config:ro
       - ./authorized_keys:/authorized_keys:ro
+    cap_add:
+      - NET_ADMIN
+
 
 networks:
   hostnet:
