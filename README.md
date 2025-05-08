@@ -1,4 +1,4 @@
-![image](docs/media/Logo.png)
+![image](docs/media/Logonew.png)
 # SSHMAP Project
 
 A modular Python tool for performing SSH bruteforce attacks, storing access relationships in a Neo4j graph.
