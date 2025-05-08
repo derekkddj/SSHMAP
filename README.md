@@ -1,4 +1,5 @@
-# SSH Brute Project
+![image](docs/media/Logo.png)
+# SSHMAP Project
 
 A modular Python tool for performing SSH bruteforce attacks, storing access relationships in a Neo4j graph.
 There is a cli tool to get the paths from one starting point to other machines, and can creates que SSH commands to connect to the final machine.
