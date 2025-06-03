@@ -19,7 +19,7 @@ usage: SSHMAP.py [-h] --targets TARGETS [--blacklist BLACKLIST] [--users USERS] 
         SSH Credential Mapper - SSHMAP
         Navigating the Maze of Access...
 
-    Version : 0.1
+    Version : 0.2
 
 
 options:
