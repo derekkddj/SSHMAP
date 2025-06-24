@@ -52,7 +52,7 @@ class SSHSession:
                         known_hosts=None,
                         client_keys=[key_obj],
                     )
-                    self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
+                    
                 else:
                     self.connection = await asyncssh.connect(
                         self.host,
@@ -66,7 +66,7 @@ class SSHSession:
                         known_hosts=None,
                         client_keys=None,
                     )
-                    self.sshmap_logger.success(f"{self.user}:{self.password}")
+                    
             else:
                 if self.key_filename:
                     key_obj = self.key_objects.get(self.key_filename)
@@ -80,7 +80,7 @@ class SSHSession:
                         known_hosts=None,
                         client_keys=[key_obj],
                     )
-                    self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
+                    
                 else:
                     self.connection = await asyncssh.connect(
                         self.host,
@@ -93,8 +93,12 @@ class SSHSession:
                         known_hosts=None,
                         client_keys=None,
                     )
-                    self.sshmap_logger.success(f"{self.user}:{self.password}")
+                    
             self.remote_hostname = await get_remote_hostname(self)
+            if self.password:
+                self.sshmap_logger.success(f"{self.user}:{self.password} (hostname:{self.remote_hostname})")
+            else:
+                self.sshmap_logger.success(f"{self.user}:{self.key_filename} (hostname:{self.remote_hostname})")
             return True
 
         except asyncssh.PermissionDenied:

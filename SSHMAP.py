@@ -8,7 +8,8 @@ from modules.helpers.logger import highlight
 from modules.config import CONFIG
 from modules.utils import (
     get_local_info,
-    get_remote_info,
+    get_remote_hostname,
+    get_remote_ip,
     read_targets,
     check_open_port,
     get_all_ips_in_subnet,
@@ -101,7 +102,8 @@ async def handle_target(
                         sshmap_logger.info(
                             f"[{target}:{port}] Get remote hostname and IPs"
                         )
-                        remote_hostname, remote_ips = await get_remote_info(ssh_conn)
+                        remote_hostname = await get_remote_hostname(ssh_conn)
+                        remote_ips = await get_remote_ip(ssh_conn)
 
                         sshmap_logger.info(
                             f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}"
@@ -134,7 +136,9 @@ async def handle_target(
                             and current_depth < max_depth
                             and remote_hostname != start_host
                         ):
-
+                            sshmap_logger.display(
+                                f"[depth:{current_depth}] New jumphost found: {remote_hostname}, starting recursive scan"
+                            )
                             visited_attempts.add(remote_hostname)
                             new_targets = []
                             for remote_ip_cidr in remote_ips:
@@ -180,8 +184,6 @@ async def handle_target(
                             sshmap_logger.info(
                                 f"Already scanned from {remote_hostname}. Skipping."
                             )
-                        # I dont know how to close the connection, if i close it here, the jump will fail.
-                        # await ssh_conn.close()
     except asyncio.CancelledError:
         print(f"{target} was cancelled in handle target.")
         raise
@@ -303,7 +305,7 @@ async def async_main(args):
             graph.close()
 
         print_jumphosts(visited_attempts)
-    sshmap_logger.info("Close all SSH sessions and connections.")
+    sshmap_logger.success("Close all SSH sessions and connections.")
     await ssh_session_manager.close_all()
     sshmap_logger.success("All tasks completed.")
     

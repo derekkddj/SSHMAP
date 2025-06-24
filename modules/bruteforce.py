@@ -67,11 +67,11 @@ async def try_single_credential(
                     # Store the credential in the CredentialStore
                     await credential_store.store(host, port, user, password, "password")
                     
-                    ssh = await ssh_session_manager.add_session(
-                        host, ssh, user, "password", password
+                    nssh = await ssh_session_manager.add_session(
+                        ssh.get_remote_hostname(), ssh, user, "password", password
                     )
-                    
-                    return Result(user, "password", ssh, password)
+
+                    return Result(user, "password", nssh, password)
             except asyncio.TimeoutError:
                 sshmap_logger.warning(
                     f"[TIMEOUT] Password authentication timed out for {user}@{host}:{port} with password: {password}"
@@ -101,11 +101,12 @@ async def try_single_credential(
                     # Store the credential in the CredentialStore
                     await credential_store.store(host, port, user, keyfile, "keyfile")
                     # Add the session to the SSHSessionManager
-                    ssh = await ssh_session_manager.add_session(
-                        host, ssh, user, "keyfile", keyfile
-                    )
                     
-                    return Result(user, "keyfile", ssh, keyfile)
+                    nssh = await ssh_session_manager.add_session(
+                        ssh.get_remote_hostname(), ssh, user, "keyfile", keyfile
+                    )
+
+                    return Result(user, "keyfile", nssh, keyfile)
             except asyncio.TimeoutError:
                 sshmap_logger.warning(
                     f"[TIMEOUT] Keyfile authentication timed out for {user}@{host}:{port} with keyfile: {keyfile}"

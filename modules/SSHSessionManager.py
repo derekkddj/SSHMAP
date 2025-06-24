@@ -65,13 +65,13 @@ class SSHSessionManager:
 
         existing = self.sessions.get(key)
         if existing and await existing.is_connected():
-            sshmap_logger.display(
+            sshmap_logger.debug(
                 f"[!] Session for {key} already exists and is alive. Closing the new one."
             )
             await session.close()
             return existing
         else:
-            sshmap_logger.display(f"[+] Adding new session for {key}")
+            sshmap_logger.info(f"[+] Adding new session for {key}")
             self.sessions[key] = session
             return session
 
