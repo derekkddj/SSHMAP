@@ -16,7 +16,7 @@ class SSHSession:
         self.key_filename = key_filename
         self.port = port
         self.jumper = jumper
-        self.connection = None  # Initialize the client as None
+        self.connection = None  # Initialize the client as None, type asyncssh.SSHClientConnection
         self.remote_hostname = None  # hostname of the machine were we are connected to
         self.key_objects = key_objects
         logging.getLogger("asyncssh").disabled = True
@@ -150,3 +150,14 @@ class SSHSession:
 
     def get_host(self):
         return self.host
+
+    async def is_connected(self) -> bool:
+        if self.connection is None:
+            return False
+        try:
+            process = await self.connection.create_process('true')
+            await process.wait()
+            return process.exit_status == 0
+        except Exception as e:
+            self.sshmap_logger.error(f"Error checking connection status for {self.host}: {e}")
+            return False

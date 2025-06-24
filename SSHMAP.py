@@ -18,6 +18,7 @@ from argparse import RawTextHelpFormatter
 from modules.console import nxc_console
 from rich.table import Table
 from rich.live import Live
+from modules.SSHSessionManager import SSHSessionManager
 
 from rich.progress import (
     Progress,
@@ -65,6 +66,7 @@ async def handle_target(
     blacklist_ips=None,
     progress=None,
     task_ids=None,
+    ssh_session_manager=None,
 ):
     try:
         if current_depth > max_depth:
@@ -88,7 +90,7 @@ async def handle_target(
                     f"[{target}] Port {port} is open, starting bruteforce..."
                 )
                 results = await bruteforce.try_all(
-                    target, port, maxworkers, jump, credential_store
+                    target, port, maxworkers, jump, credential_store, ssh_session_manager
                 )
                 for res in results:
                     if res.ssh_session:
@@ -232,6 +234,12 @@ async def async_main(args):
 
     blacklist_ips = read_targets(args.blacklist) if args.blacklist else []
 
+    # Initialize SSHSSessionManager
+    ssh_session_manager = SSHSessionManager(
+        graphdb=graph,
+        credential_store=credential_store
+    )
+
     # Launch multiple tasks concurrently for all targets
     queue = asyncio.Queue()
     initial_jump_host = start_host
@@ -270,6 +278,7 @@ async def async_main(args):
                             blacklist_ips,
                             progress,
                             task_ids,
+                            ssh_session_manager
                         )
 
                     if current_jump in task_ids:
@@ -294,8 +303,10 @@ async def async_main(args):
             graph.close()
 
         print_jumphosts(visited_attempts)
-
+    sshmap_logger.info("Close all SSH sessions and connections.")
+    await ssh_session_manager.close_all()
     sshmap_logger.success("All tasks completed.")
+    
 
 
 def print_jumphosts(visited_attempts):

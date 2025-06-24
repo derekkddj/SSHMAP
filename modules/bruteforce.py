@@ -24,7 +24,7 @@ class Result:
 
 
 async def try_single_credential(
-    host, port, credential, jumper=None, credential_store=None
+    host, port, credential, jumper=None, credential_store=None, ssh_session_manager=None
 ):
     """Class to attempt a single credential authentication.
     This function tries to authenticate using either a password or a keyfile.
@@ -66,6 +66,11 @@ async def try_single_credential(
                     )
                     # Store the credential in the CredentialStore
                     await credential_store.store(host, port, user, password, "password")
+                    
+                    ssh = await ssh_session_manager.add_session(
+                        host, ssh, user, "password", password
+                    )
+                    
                     return Result(user, "password", ssh, password)
             except asyncio.TimeoutError:
                 sshmap_logger.warning(
@@ -95,6 +100,11 @@ async def try_single_credential(
                     )
                     # Store the credential in the CredentialStore
                     await credential_store.store(host, port, user, keyfile, "keyfile")
+                    # Add the session to the SSHSessionManager
+                    ssh = await ssh_session_manager.add_session(
+                        host, ssh, user, "keyfile", keyfile
+                    )
+                    
                     return Result(user, "keyfile", ssh, keyfile)
             except asyncio.TimeoutError:
                 sshmap_logger.warning(
@@ -116,7 +126,7 @@ async def try_single_credential(
     return None
 
 
-async def try_all(host, port, maxworkers=10, jumper=None, credential_store=None):
+async def try_all(host, port, maxworkers=10, jumper=None, credential_store=None, ssh_session_manager=None):
     """Try all combinations of users, passwords, and keyfiles against a target host.
 
     Args:
@@ -143,7 +153,7 @@ async def try_all(host, port, maxworkers=10, jumper=None, credential_store=None)
         )
         task = asyncio.create_task(
             try_single_credential(
-                host, port, credential, jumper=jumper, credential_store=credential_store
+                host, port, credential, jumper=jumper, credential_store=credential_store, ssh_session_manager=ssh_session_manager
             )
         )
         tasks.append(task)
