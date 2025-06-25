@@ -32,8 +32,11 @@ progress = Progress(
     transient=True,
 )
 
+# Initialize the Neo4j graph database connection
 graph = GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
 
+# Date of running
+currenttime = datetime.now().strftime('%Y%m%d_%H%M%S')
 
 async def execute_command_on_host(
     args, target, local_hostname, credential_store, task_id
@@ -61,7 +64,9 @@ async def execute_command_on_host(
         # Create output directory if it doesn't exist
         if not args.no_store:
             os.makedirs(args.output, exist_ok=True)
-            output_filename = f"{args.output}/{target}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            # Trim "command" to only 10, and change space to underscore
+            command_trimmed = args.command[:10].replace(" ", "_")
+            output_filename = f"{args.output}/{currenttime}_{target}_{command_trimmed}.txt"
             with open(output_filename, "w") as f:
                 f.write(f"Output from {target}:\n")
                 f.write(f"Executed command: {args.command}\n\n")
