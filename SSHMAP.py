@@ -91,7 +91,12 @@ async def handle_target(
                     f"[{target}] Port {port} is open, starting bruteforce..."
                 )
                 results = await bruteforce.try_all(
-                    target, port, maxworkers, jump, credential_store, ssh_session_manager
+                    target,
+                    port,
+                    maxworkers,
+                    jump,
+                    credential_store,
+                    ssh_session_manager,
                 )
                 for res in results:
                     if res.ssh_session:
@@ -238,8 +243,7 @@ async def async_main(args):
 
     # Initialize SSHSSessionManager
     ssh_session_manager = SSHSessionManager(
-        graphdb=graph,
-        credential_store=credential_store
+        graphdb=graph, credential_store=credential_store
     )
 
     # Launch multiple tasks concurrently for all targets
@@ -280,7 +284,7 @@ async def async_main(args):
                             blacklist_ips,
                             progress,
                             task_ids,
-                            ssh_session_manager
+                            ssh_session_manager,
                         )
 
                     if current_jump in task_ids:
@@ -308,7 +312,6 @@ async def async_main(args):
     sshmap_logger.success("Close all SSH sessions and connections.")
     await ssh_session_manager.close_all()
     sshmap_logger.success("All tasks completed.")
-    
 
 
 def print_jumphosts(visited_attempts):

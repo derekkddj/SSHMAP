@@ -1,4 +1,6 @@
 wordlists/*
+output/
+output/*
 venv
 venv/
 venv_linux

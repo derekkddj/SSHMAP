@@ -34,14 +34,14 @@ class SSHSessionManager:
 
             key_object = None
             if meta["method"] == "keyfile":
-                key_object = self.credential_store.get_key_object(meta["creds"])
+                key_object = self.credential_store.get_key_objects()
 
             session = SSHSession(
                 host=meta["ip"],
                 user=meta["user"],
                 password=password,
                 key_filename=key_filename,
-                key_objects=[key_object] if key_object else None,
+                key_objects=key_object if key_object else None,
                 port=meta["port"],
                 jumper=previous_session,
             )

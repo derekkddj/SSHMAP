@@ -39,7 +39,7 @@ class SSHSession:
         try:
             # Direct connection or via jumper (proxy)
             if self.jumper:
-                if self.key_filename:
+                if self.key_filename:                
                     key_obj = self.key_objects.get(self.key_filename)
                     self.connection = await asyncssh.connect(
                         self.host,
