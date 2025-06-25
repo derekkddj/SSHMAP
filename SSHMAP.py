@@ -8,7 +8,8 @@ from modules.helpers.logger import highlight
 from modules.config import CONFIG
 from modules.utils import (
     get_local_info,
-    get_remote_info,
+    get_remote_hostname,
+    get_remote_ip,
     read_targets,
     check_open_port,
     get_all_ips_in_subnet,
@@ -18,6 +19,7 @@ from argparse import RawTextHelpFormatter
 from modules.console import nxc_console
 from rich.table import Table
 from rich.live import Live
+from modules.SSHSessionManager import SSHSessionManager
 
 from rich.progress import (
     Progress,
@@ -65,6 +67,7 @@ async def handle_target(
     blacklist_ips=None,
     progress=None,
     task_ids=None,
+    ssh_session_manager=None,
 ):
     try:
         if current_depth > max_depth:
@@ -88,7 +91,12 @@ async def handle_target(
                     f"[{target}] Port {port} is open, starting bruteforce..."
                 )
                 results = await bruteforce.try_all(
-                    target, port, maxworkers, jump, credential_store
+                    target,
+                    port,
+                    maxworkers,
+                    jump,
+                    credential_store,
+                    ssh_session_manager,
                 )
                 for res in results:
                     if res.ssh_session:
@@ -99,7 +107,8 @@ async def handle_target(
                         sshmap_logger.info(
                             f"[{target}:{port}] Get remote hostname and IPs"
                         )
-                        remote_hostname, remote_ips = await get_remote_info(ssh_conn)
+                        remote_hostname = await get_remote_hostname(ssh_conn)
+                        remote_ips = await get_remote_ip(ssh_conn)
 
                         sshmap_logger.info(
                             f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}"
@@ -132,7 +141,9 @@ async def handle_target(
                             and current_depth < max_depth
                             and remote_hostname != start_host
                         ):
-
+                            sshmap_logger.display(
+                                f"[depth:{current_depth}] New jumphost found: {remote_hostname}, starting recursive scan"
+                            )
                             visited_attempts.add(remote_hostname)
                             new_targets = []
                             for remote_ip_cidr in remote_ips:
@@ -178,8 +189,6 @@ async def handle_target(
                             sshmap_logger.info(
                                 f"Already scanned from {remote_hostname}. Skipping."
                             )
-                        # I dont know how to close the connection, if i close it here, the jump will fail.
-                        # await ssh_conn.close()
     except asyncio.CancelledError:
         print(f"{target} was cancelled in handle target.")
         raise
@@ -232,6 +241,11 @@ async def async_main(args):
 
     blacklist_ips = read_targets(args.blacklist) if args.blacklist else []
 
+    # Initialize SSHSSessionManager
+    ssh_session_manager = SSHSessionManager(
+        graphdb=graph, credential_store=credential_store
+    )
+
     # Launch multiple tasks concurrently for all targets
     queue = asyncio.Queue()
     initial_jump_host = start_host
@@ -270,6 +284,7 @@ async def async_main(args):
                             blacklist_ips,
                             progress,
                             task_ids,
+                            ssh_session_manager,
                         )
 
                     if current_jump in task_ids:
@@ -294,7 +309,8 @@ async def async_main(args):
             graph.close()
 
         print_jumphosts(visited_attempts)
-
+    sshmap_logger.success("Close all SSH sessions and connections.")
+    await ssh_session_manager.close_all()
     sshmap_logger.success("All tasks completed.")
 
 

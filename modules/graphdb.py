@@ -163,6 +163,35 @@ class GraphDB:
                 hostname=hostname,
                 cidr_info=cidr_info,
             )
+    def get_host(self, hostname):
+        """
+        Retrieve a host by its hostname.
+        Returns a dictionary with hostname and interfaces (IP/mask pairs in CIDR).
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                "MATCH (h:Host {hostname: $hostname}) RETURN h.hostname AS hostname, h.interfaces AS interfaces",
+                hostname=hostname,
+            )
+            record = result.single()
+            if record:
+                return {
+                    "hostname": record["hostname"],
+                    "interfaces": record["interfaces"] or [],
+                }
+            return None
+    
+    def get_all_hosts(self):
+        """
+        Retrieve all hosts in the database.
+        Returns a list of dictionaries with hostname and interfaces (IP/mask pairs in CIDR).
+        """
+        with self.driver.session() as session:
+            result = session.run("MATCH (h:Host) RETURN h.hostname AS hostname, h.interfaces AS interfaces")
+            return [
+                {"hostname": record["hostname"], "interfaces": record["interfaces"] or []}
+                for record in result
+            ]
 
     def add_ssh_connection(
         self, from_hostname, to_hostname, user, method, creds, ip, port
