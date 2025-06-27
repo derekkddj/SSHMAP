@@ -79,7 +79,7 @@ async def try_single_credential(
 
                     return Result(user, "password", nssh, password)
             except asyncio.TimeoutError:
-                sshmap_logger.error(
+                sshmap_logger.warning(
                     f"[TIMEOUT] Password authentication timed out for {user}@{host}:{port} with password: {password} and jump {jumper.get_host() if jumper else None}"
                 )
                 return None
