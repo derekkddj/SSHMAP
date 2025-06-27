@@ -1,4 +1,5 @@
-# SSH Brute Project
+![image](docs/media/Logonew.png)
+# SSHMAP Project
 
 A modular Python tool for performing SSH bruteforce attacks, storing access relationships in a Neo4j graph.
 There is a cli tool to get the paths from one starting point to other machines, and can creates que SSH commands to connect to the final machine.
@@ -18,7 +19,7 @@ usage: SSHMAP.py [-h] --targets TARGETS [--blacklist BLACKLIST] [--users USERS] 
         SSH Credential Mapper - SSHMAP
         Navigating the Maze of Access...
 
-    Version : 0.1
+    Version : 0.2
 
 
 options:
@@ -194,11 +195,41 @@ Host target
 
 When using this config file with SSH, you may need to write the passwords one by one for each JumpHost.
 
+### Use the included "execute":
+
+This is a simple program to execute commands on the machines found with the SSHMAP.py principal program.
+The help shows all the info needed. This program uses the class SSHSessionManager to create and reuse SSH connections.
+
+```bash
+python3 sshmap_execute.py --help                                                                                     
+usage: sshmap_execute.py [-h] [--hostname HOSTNAME] [--command COMMAND] [--all] [--credentialspath CREDENTIALSPATH] [--debug] [--verbose]
+                         [--maxworkers MAXWORKERS] [--output OUTPUT] [--quiet] [--no-store]
+
+SSH Execute
+
+options:
+  -h, --help            show this help message and exit
+  --hostname HOSTNAME   Hostname to execute commands on
+  --command COMMAND     Command to execute
+  --all                 Execute on all reachable hosts (default: only one)
+  --credentialspath CREDENTIALSPATH
+                        Path to CSV credentials file, will populate users and passwords
+  --debug               enable debug level information
+  --verbose             enable verbose output
+  --maxworkers MAXWORKERS
+                        Number of workers for target
+  --output OUTPUT       Path to output folder
+  --quiet               Suppress all output of command execution
+  --no-store            Do not store the output to a file
+
+```
+
 ### Project Structure
 ```bash
 ssh_brute_project/
 ├── SSHMAP.py             # Main program to scan the network
-├── sshmap_cli.py         # Simle CLI to fin paths in the Neo4J database.
+├── sshmap_cli.py         # Simle CLI to find paths in the Neo4J database.
+├── sshmap_execute.py     # Simle CLI to execute commands in targets, usign SSHSessionManager
 ├── modules/              # Internal modules.
 │   ├── bruteforce.py     # SSH brute logic
 │   ├── graphdb.py        # Neo4j wrapper
@@ -209,7 +240,8 @@ ssh_brute_project/
 │   ├── logger.py         # Logger setup 
 │   ├── paths.py          # Helper class for managing store paths
 │   ├── SSHSession.py     # Wrapper for a SSH connection with info about the "JUMP"
-│   └── utils.py          # Utils and functions
+│   ├── SSHSeessionManager.py # manager of SSHSessions, crete, save, and reuse
+└── └── utils.py          # Utils and functions
 ```
 ### Future Work
 
@@ -217,4 +249,6 @@ ssh_brute_project/
 - [ ] Create a key_scanner, or credential_scanner, to search in new machines
 - [ ] Create POST-Explotation modules, like launch linpeas or linux exploit suggester
 - [ ] Better clean stop after Ctrl-C
-- [ ] Session manager, to close and create SSH tunnels bettter
+- [x] Session manager, to close and create SSH tunnels bettter
+- [ ] The SSHSessionManager must try to connect to the machine with various jumps if one of them does not work. How to "blacklist" an specific node?
+- [x] Timestamt de los intentos realizados, en el fichero de log

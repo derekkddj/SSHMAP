@@ -28,21 +28,42 @@ class Credential:
         )
 
 
-
 class CredentialStore:
-    def __init__(self, path="wordlists/valid_credentials.csv"):
+    def __init__(self, path="wordlists/credentials.csv"):
+
         self.path = path
         self.lock = Lock()
         self.key_objects = {}
+        sshmap_logger.debug(f"Loading credentials from {self.path}")
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self.credentials = self._read_all()
+        sshmap_logger.debug(
+            f"Loaded {len(self.credentials)} credentials from {self.path}"
+        )
 
     def _read_all(self):
+        sshmap_logger.debug(f"Loading credentials from {self.path}")
         if not os.path.exists(self.path):
+            sshmap_logger.warning(
+                f"Credential file {self.path} does not exist. Creating a new one."
+            )
             return []
+        credentials = []
         with open(self.path, mode="r", newline="") as f:
             reader = csv.DictReader(f)
-            return [Credential.from_dict(row) for row in reader]
+            for row in reader:
+                cred = Credential.from_dict(row)
+                credentials.append(cred)
+                # Preload key if method is 'keyfile'
+                if cred.method == "keyfile":
+                    secret = cred.secret
+                    if secret not in self.key_objects:
+                        key_obj = preload_key(secret)
+                        if key_obj:
+                            self.key_objects[secret] = key_obj
+                        else:
+                            sshmap_logger.warning(f"Failed to preload key: {secret}")
+        return credentials
 
     def _write_all(self, credentials):
         with open(self.path, mode="w", newline="") as f:
@@ -65,10 +86,10 @@ class CredentialStore:
                 self.credentials.append(new_cred)
                 self._write_all(self.credentials)
             if new_cred.method == "keyfile":
-                    if secret not in self.key_objects:
-                        key_obj = preload_key(secret)
-                        if key_obj:
-                            self.key_objects[secret] = key_obj
+                if secret not in self.key_objects:
+                    key_obj = preload_key(secret)
+                    if key_obj:
+                        self.key_objects[secret] = key_obj
             else:
                 sshmap_logger.debug(f"Credential already exists: {new_cred}")
 
@@ -127,3 +148,12 @@ class CredentialStore:
     def get_all(self):
         with self.lock:
             return self.credentials
+
+    def count(self):
+        """Return the number of credentials in the store."""
+        with self.lock:
+            return len(self.credentials)
+
+    def get_key_objects(self):
+        with self.lock:
+            return self.key_objects

@@ -7,7 +7,14 @@ from .config import CONFIG
 
 class SSHSession:
     def __init__(
-        self, host, user, password=None, key_filename=None, port=22, jumper=None, key_objects=None
+        self,
+        host,
+        user,
+        password=None,
+        key_filename=None,
+        port=22,
+        jumper=None,
+        key_objects=None,
     ):
         # If jump_session is provided, use it for the connection. Must be SSHSession instance.
         self.host = host
@@ -16,7 +23,9 @@ class SSHSession:
         self.key_filename = key_filename
         self.port = port
         self.jumper = jumper
-        self.connection = None  # Initialize the client as None
+        self.connection = (
+            None  # Initialize the client as None, type asyncssh.SSHClientConnection
+        )
         self.remote_hostname = None  # hostname of the machine were we are connected to
         self.key_objects = key_objects
         logging.getLogger("asyncssh").disabled = True
@@ -52,7 +61,7 @@ class SSHSession:
                         known_hosts=None,
                         client_keys=[key_obj],
                     )
-                    self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
+
                 else:
                     self.connection = await asyncssh.connect(
                         self.host,
@@ -66,7 +75,7 @@ class SSHSession:
                         known_hosts=None,
                         client_keys=None,
                     )
-                    self.sshmap_logger.success(f"{self.user}:{self.password}")
+
             else:
                 if self.key_filename:
                     key_obj = self.key_objects.get(self.key_filename)
@@ -80,7 +89,7 @@ class SSHSession:
                         known_hosts=None,
                         client_keys=[key_obj],
                     )
-                    self.sshmap_logger.success(f"{self.user}:{self.key_filename}")
+
                 else:
                     self.connection = await asyncssh.connect(
                         self.host,
@@ -93,8 +102,16 @@ class SSHSession:
                         known_hosts=None,
                         client_keys=None,
                     )
-                    self.sshmap_logger.success(f"{self.user}:{self.password}")
+
             self.remote_hostname = await get_remote_hostname(self)
+            if self.password:
+                self.sshmap_logger.success(
+                    f"{self.user}:{self.password} (hostname:{self.remote_hostname})"
+                )
+            else:
+                self.sshmap_logger.success(
+                    f"{self.user}:{self.key_filename} (hostname:{self.remote_hostname})"
+                )
             return True
 
         except asyncssh.PermissionDenied:
@@ -107,9 +124,9 @@ class SSHSession:
                 f"ChannelOpenError with:{self.user}:{self.password if self.password else self.key_filename} to {self.host}:{self.port} with jump host {self.jumper.get_host() if self.jumper else None}, Error: {e.reason}"
             )
             return False
-        except Exception as e:
+        except Exception as e:  # aqui aparecen muchos errores al poner varios usuarios
             self.sshmap_logger.error(
-                f"Unexpected error for {self.user}@{self.host}:{self.port} {type(e).__name__} - {e}"
+                f"Unexpected error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper.get_host() if self.jumper else None} {type(e).__name__} - {e}"
             )
             self.connection = None
             return False
@@ -128,7 +145,6 @@ class SSHSession:
         result = await self.connection.run(command)
         return result.stdout
 
-
     async def exec_command_with_stderr(self, command):
         """Execute command on remote machine."""
         if self.connection is None:
@@ -136,7 +152,6 @@ class SSHSession:
 
         result = await self.connection.run(command)
         return result.stdout, result.stderr
-
 
     async def close(self):
         """Close the SSH connection."""
@@ -150,3 +165,16 @@ class SSHSession:
 
     def get_host(self):
         return self.host
+
+    async def is_connected(self) -> bool:
+        if self.connection is None:
+            return False
+        try:
+            process = await self.connection.create_process("true")
+            await process.wait()
+            return process.exit_status == 0
+        except Exception as e:
+            self.sshmap_logger.error(
+                f"Error checking connection status for {self.host}: {e}"
+            )
+            return False

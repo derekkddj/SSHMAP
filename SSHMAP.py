@@ -8,7 +8,8 @@ from modules.helpers.logger import highlight
 from modules.config import CONFIG
 from modules.utils import (
     get_local_info,
-    get_remote_info,
+    get_remote_hostname,
+    get_remote_ip,
     read_targets,
     check_open_port,
     get_all_ips_in_subnet,
@@ -18,7 +19,8 @@ from argparse import RawTextHelpFormatter
 from modules.console import nxc_console
 from rich.table import Table
 from rich.live import Live
-
+from modules.SSHSessionManager import SSHSessionManager
+from datetime import datetime
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -27,6 +29,8 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+import random
+from modules.helpers.AsyncRandomQueue import AsyncRandomQueue
 
 
 VERSION = "0.1"
@@ -39,6 +43,9 @@ ssh_ports = CONFIG["ssh_ports"]
 # Max depth for the ssh scan
 max_depth = CONFIG["max_depth"]
 # Thread-safe function to handle a target
+
+# Date of running
+currenttime = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 console = nxc_console
 visited_attempts = set()
@@ -57,7 +64,7 @@ progress = Progress(
 
 async def handle_target(
     target,
-    maxworkers,
+    maxworkers_ssh,
     credential_store,
     current_depth,
     jump=None,
@@ -65,6 +72,7 @@ async def handle_target(
     blacklist_ips=None,
     progress=None,
     task_ids=None,
+    ssh_session_manager=None,
 ):
     try:
         if current_depth > max_depth:
@@ -88,7 +96,12 @@ async def handle_target(
                     f"[{target}] Port {port} is open, starting bruteforce..."
                 )
                 results = await bruteforce.try_all(
-                    target, port, maxworkers, jump, credential_store
+                    target,
+                    port,
+                    maxworkers_ssh,
+                    jump,
+                    credential_store,
+                    ssh_session_manager,
                 )
                 for res in results:
                     if res.ssh_session:
@@ -99,7 +112,8 @@ async def handle_target(
                         sshmap_logger.info(
                             f"[{target}:{port}] Get remote hostname and IPs"
                         )
-                        remote_hostname, remote_ips = await get_remote_info(ssh_conn)
+                        remote_hostname = await get_remote_hostname(ssh_conn)
+                        remote_ips = await get_remote_ip(ssh_conn)
 
                         sshmap_logger.info(
                             f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}"
@@ -132,7 +146,9 @@ async def handle_target(
                             and current_depth < max_depth
                             and remote_hostname != start_host
                         ):
-
+                            sshmap_logger.display(
+                                f"[depth:{current_depth}] New jumphost found: {remote_hostname}, starting recursive scan"
+                            )
                             visited_attempts.add(remote_hostname)
                             new_targets = []
                             for remote_ip_cidr in remote_ips:
@@ -162,14 +178,13 @@ async def handle_target(
                             if progress and remote_hostname not in task_ids:
                                 task_ids[remote_hostname] = progress.add_task(
                                     description=f"Scanning {remote_hostname}",
-                                    total=len(
-                                        new_targets
-                                    ),  # or len(new_targets) if scanning IPs
+                                    total=len(new_targets),
                                     jump_host=remote_hostname,
                                 )
                             sshmap_logger.info(
                                 f"Curent-depth: {current_depth}, scaning from: {source_host} We create a recursive job, using remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets"
                             )
+
                             for new_target in new_targets:
                                 await queue.put(
                                     (new_target, current_depth + 1, ssh_conn)
@@ -178,10 +193,15 @@ async def handle_target(
                             sshmap_logger.info(
                                 f"Already scanned from {remote_hostname}. Skipping."
                             )
-                        # I dont know how to close the connection, if i close it here, the jump will fail.
-                        # await ssh_conn.close()
+            else:
+                sshmap_logger.info(
+                    f"[{target}] No open ports found, skipping bruteforce."
+                )
+
+        sshmap_logger.info(f"[{target}] Bruteforce completed successfully.")
+        return
     except asyncio.CancelledError:
-        print(f"{target} was cancelled in handle target.")
+        sshmap_logger.error(f"{target} was cancelled in handle target.")
         raise
 
 
@@ -225,19 +245,25 @@ async def async_main(args):
             await credential_store.store("_bruteforce", 22, user, keyfile, "keyfile")
     # Preload keys from the directory
 
-    sshmap_logger.display(
-        f"Starting attack on {len(targets)} targets with max depth {max_depth}"
-    )
     graph.add_host(start_host, start_ips)
 
     blacklist_ips = read_targets(args.blacklist) if args.blacklist else []
+    # remove ips in blacklist from targets
+    new_targets = [ip for ip in targets if ip not in blacklist_ips]
+    sshmap_logger.display(
+        f"Starting attack on {len(new_targets)} targets with max depth {max_depth}"
+    )
+    # Initialize SSHSSessionManager
+    ssh_session_manager = SSHSessionManager(
+        graphdb=graph, credential_store=credential_store
+    )
 
     # Launch multiple tasks concurrently for all targets
-    queue = asyncio.Queue()
+    queue = AsyncRandomQueue()
     initial_jump_host = start_host
     task_ids = {}
-
-    for target in targets:
+    random.shuffle(new_targets)
+    for target in new_targets:
         await queue.put((target, 1, None))
 
     with Live(progress, console=console, refresh_per_second=10):
@@ -245,7 +271,7 @@ async def async_main(args):
         # Add a task per initial jump host (in this case, just one unless more logic added)
         task_ids[initial_jump_host] = progress.add_task(
             description=f"Scanning from {initial_jump_host}",
-            total=len(targets),
+            total=len(new_targets),
             jump_host=initial_jump_host,
         )
 
@@ -262,7 +288,7 @@ async def async_main(args):
                     async with semaphore:
                         await handle_target(
                             target,
-                            args.maxworkers,
+                            args.maxworkers_ssh,
                             credential_store,
                             depth,
                             jumper,
@@ -270,6 +296,7 @@ async def async_main(args):
                             blacklist_ips,
                             progress,
                             task_ids,
+                            ssh_session_manager,
                         )
 
                     if current_jump in task_ids:
@@ -277,7 +304,7 @@ async def async_main(args):
                 except asyncio.CancelledError:
                     break
                 finally:
-                    queue.task_done()
+                    await queue.task_done()
 
         workers = [
             asyncio.create_task(tracked_worker()) for _ in range(args.maxworkers)
@@ -294,7 +321,8 @@ async def async_main(args):
             graph.close()
 
         print_jumphosts(visited_attempts)
-
+    sshmap_logger.success("Close all SSH sessions and connections.")
+    await ssh_session_manager.close_all()
     sshmap_logger.success("All tasks completed.")
 
 
@@ -362,17 +390,38 @@ def main():
         help="Path to directory with SSH private keys",
     )
     parser.add_argument(
-        "--maxworkers", type=int, default=100, help="Number of workers for target"
+        "--maxworkers",
+        type=int,
+        default=100,
+        help="Number of workers for concurrent IP attack",
     )
-    parser.add_argument("--maxdepth", type=int, default=1, help="Depth of the scan")
+    parser.add_argument(
+        "--maxworkers-ssh",
+        type=int,
+        default=25,
+        help="Number of workers for ssh user:password try",
+    )
+    parser.add_argument("--maxdepth", type=int, default=5, help="Max depth of the scan")
     parser.add_argument(
         "--debug", action="store_true", help="enable debug level information"
     )
     parser.add_argument("--verbose", action="store_true", help="enable verbose output")
+    parser.add_argument("--log", action="store_true", help="enable logging to file")
+    parser.add_argument(
+        "--log-file",
+        default=f"{currenttime}_SSHMAP_SCAN.log",
+        help="Path to the log file",
+    )
 
     args = parser.parse_args()
     global max_depth
     max_depth = args.maxdepth
+
+    if args.log:
+        # Set up logging to a file
+        log_file = args.log_file
+        sshmap_logger.add_file_log(log_file)
+        sshmap_logger.display(f"Logging to file: {log_file}")
 
     sshmap_logger.debug("Starting async_main with args: %s", args)
     # Check if Neo4J database is running
@@ -392,4 +441,7 @@ if __name__ == "__main__":
         import asyncio.windows_events
 
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        sshmap_logger.error("Ctrl+C received! Exiting...")

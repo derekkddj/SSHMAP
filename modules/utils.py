@@ -44,6 +44,7 @@ def netmask_to_cidr(netmask):
     """Convert dotted-decimal netmask to CIDR notation."""
     return sum([bin(int(x)).count("1") for x in netmask.split(".")])
 
+
 def preload_key(key_filename):
     """
     Loads a single private key using asyncssh.
@@ -54,6 +55,7 @@ def preload_key(key_filename):
         sshmap_logger.error(f"[!] Could not load key {key_filename}: {e}")
         return None
 
+
 # ssh_client is an instance of SSHSession
 async def get_remote_hostname(ssh_client):
     sshmap_logger.debug("Getting remote hostname...")
@@ -61,32 +63,23 @@ async def get_remote_hostname(ssh_client):
         hostname, err = await ssh_client.exec_command_with_stderr("hostname")
         hostname = (
             hostname.strip()
-            if not err
+            if hostname  # if not err?
             else ssh_client.connection.get_extra_info("peername")[0]
         )
     except AttributeError as e:
         sshmap_logger.error(f"Failed to get attribute: {e}")
         hostname = ssh_client.host
     except Exception as e:
-        sshmap_logger.error(f"Failed to get hostname from {ssh_client.host}: {type(e).__name__} - {e}")
+        sshmap_logger.error(
+            f"Failed to get hostname for {ssh_client.host}: {type(e).__name__} - {e}"
+        )
         hostname = ssh_client.host
     return hostname
 
 
 # ssh_client is an instance of SSHSession
-async def get_remote_info(ssh_client):
-    sshmap_logger.debug("Getting remote hostname...")
-    try:
-        hostname, err = await ssh_client.exec_command_with_stderr("hostname")
-        hostname = (
-            hostname.strip()
-            if not err
-            else ssh_client.connection.get_extra_info("peername")[0]
-        )
-    except Exception as e:
-        sshmap_logger.error(f"Failed to get hostname: {e}")
-        hostname = ssh_client.host
-
+async def get_remote_ip(ssh_client):
+    sshmap_logger.debug(f"Getting remote IP addresses for {ssh_client.host}")
     ip_info = []
 
     # Try `ip` command first
@@ -142,7 +135,7 @@ async def get_remote_info(ssh_client):
             sshmap_logger.error(f"Failed to get peer IP: {e}")
             ip_info = []
 
-    return hostname, ip_info
+    return ip_info
 
 
 def in_same_subnet(ip1, mask1, ip2, mask2):

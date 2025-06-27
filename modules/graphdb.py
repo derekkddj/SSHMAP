@@ -1,6 +1,7 @@
 from neo4j import GraphDatabase
 from ipaddress import ip_network
 import os
+import time
 
 
 # graphdb.py
@@ -40,7 +41,7 @@ class GraphDB:
                 f.write(f"    HostName {meta['ip']}\n")
                 f.write(f"    User {meta['user']}\n")
                 f.write(f"    Port {meta['port']}\n")
-                if 'keyfile' in meta['method']:
+                if "keyfile" in meta["method"]:
                     f.write(f"    IdentityFile {meta['creds']}\n")
                 f.write("\n")
 
@@ -52,8 +53,8 @@ class GraphDB:
             f.write(f"    HostName {final_meta['ip']}\n")
             f.write(f"    User {final_meta['user']}\n")
             f.write(f"    Port {final_meta['port']}\n")
-            if 'keyfile' in meta['method']:
-                    f.write(f"    IdentityFile {meta['creds']}\n")
+            if "keyfile" in meta["method"]:
+                f.write(f"    IdentityFile {meta['creds']}\n")
 
             if method == "proxyjump":
                 jump_chain = " ".join(alias for alias, _ in host_aliases)
@@ -66,7 +67,7 @@ class GraphDB:
                     host = meta["ip"]
                     port = meta["port"]
                     user = meta["user"]
-                    key_path = meta['method']
+                    key_path = meta["method"]
                     ssh_part = f"ssh -o StrictHostKeyChecking=no -p {port} -W %h:%p {user}@{host} "
                     if "keyfile" in key_path:
                         ssh_part += f"-i {meta['creds']} "
@@ -124,6 +125,70 @@ class GraphDB:
 
             return None  # No path found
 
+    def find_freshest_paths(self, start_hostname, end_hostname, limit=5, max_depth=15):
+        """
+        Find multiple freshest paths from start_hostname to end_hostname through SSH_ACCESS relationships.
+        Paths are sorted by freshness based on inverted 'time' edge property.
+        Returns list of paths, each path is list of (src, meta, dst).
+        """
+        query = """
+        MATCH (start:Host {hostname: $start}), (end:Host {hostname: $end})
+        CALL apoc.path.expandConfig(start, {
+            relationshipFilter: 'SSH_ACCESS>',
+            labelFilter: '+Host',
+            endNodes: [end],
+            uniqueness: 'NODE_GLOBAL',
+            bfs: true,
+            limit: $limit,
+            maxLevel: $max_depth,
+            filterStartNode: true
+        }) YIELD path
+        WITH path, reduce(
+            inv_weight = 0, r IN relationships(path) |
+            inv_weight + (9999999999999 - coalesce(r.time, 0))
+        ) AS total_inv_weight
+        RETURN path, total_inv_weight
+        ORDER BY total_inv_weight ASC
+        LIMIT $limit
+        """
+
+        with self.driver.session() as session:
+            result = session.run(
+                query,
+                start=start_hostname,
+                end=end_hostname,
+                limit=limit,
+                max_depth=max_depth,
+            )
+
+            all_paths = []
+            for record in result:
+                path = record["path"]
+                nodes = record["nodes"] if "nodes" in record else path.nodes
+                rels = (
+                    record["relationships"]
+                    if "relationships" in record
+                    else path.relationships
+                )
+
+                path_segments = []
+                for i in range(len(rels)):
+                    src = nodes[i]["hostname"]
+                    dst = nodes[i + 1]["hostname"]
+                    rel = rels[i]
+                    meta = {
+                        "user": rel.get("user"),
+                        "method": rel.get("method"),
+                        "creds": rel.get("creds"),
+                        "ip": rel.get("ip"),
+                        "port": rel.get("port"),
+                        "time": rel.get("time"),
+                    }
+                    path_segments.append((src, meta, dst))
+                all_paths.append(path_segments)
+
+            return all_paths
+
     def find_all_paths_to(self, start_hostname, end_hostname, max_depth=5):
         """
         Find all paths (up to max_depth) from start_hostname to end_hostname.
@@ -164,15 +229,65 @@ class GraphDB:
                 cidr_info=cidr_info,
             )
 
+    def get_host(self, hostname):
+        """
+        Retrieve a host by its hostname.
+        Returns a dictionary with hostname and interfaces (IP/mask pairs in CIDR).
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                "MATCH (h:Host {hostname: $hostname}) RETURN h.hostname AS hostname, h.interfaces AS interfaces",
+                hostname=hostname,
+            )
+            record = result.single()
+            if record:
+                return {
+                    "hostname": record["hostname"],
+                    "interfaces": record["interfaces"] or [],
+                }
+            return None
+
+    def get_all_hosts(self):
+        """
+        Retrieve all hosts in the database.
+        Returns a list of dictionaries with hostname and interfaces (IP/mask pairs in CIDR).
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                "MATCH (h:Host) RETURN h.hostname AS hostname, h.interfaces AS interfaces"
+            )
+            return [
+                {
+                    "hostname": record["hostname"],
+                    "interfaces": record["interfaces"] or [],
+                }
+                for record in result
+            ]
+
     def add_ssh_connection(
         self, from_hostname, to_hostname, user, method, creds, ip, port
     ):
+        # Get current time in milliseconds since epoch
+        currentmilis = round(time.time() * 1000)  # Uncomment if you want
+        # We have to use MERGE here to avoid duplicates
+        # If the relationship already exists, it will not create a new one
+        # If it does not exist, it will create a new one with the provided properties
+        # Update the "time" property of the existing SSH_ACCESS relationship if it exists,
+        # otherwise create a new one with all properties.
         with self.driver.session() as session:
             session.run(
                 """
-                MATCH (src:Host {hostname: $from_hostname})
-                MATCH (dst:Host {hostname: $to_hostname})
-                MERGE (src)-[r:SSH_ACCESS {user: $user, method: $method, creds: $creds, ip: $ip, port:$port}]->(dst)
+            MATCH (src:Host {hostname: $from_hostname})-[r:SSH_ACCESS]->(dst:Host {hostname: $to_hostname})
+            WHERE r.user = $user AND r.method = $method AND r.creds = $creds AND r.ip = $ip AND r.port = $port
+            SET r.time = $currentmilis
+            WITH count(r) AS updated
+            CALL apoc.do.when(
+                updated = 0,
+                'MATCH (src:Host {hostname: $from_hostname}), (dst:Host {hostname: $to_hostname}) MERGE (src)-[r:SSH_ACCESS {user: $user, method: $method, creds: $creds, ip: $ip, port: $port}]->(dst) SET r.time = $currentmilis',
+                '',
+                {from_hostname: $from_hostname, to_hostname: $to_hostname, user: $user, method: $method, creds: $creds, ip: $ip, port: $port, currentmilis: $currentmilis}
+            ) YIELD value
+            RETURN value
             """,
                 from_hostname=from_hostname,
                 to_hostname=to_hostname,
@@ -181,6 +296,7 @@ class GraphDB:
                 creds=creds,
                 ip=ip,
                 port=port,
+                currentmilis=currentmilis,
             )
 
     def find_hosts_in_same_subnet(self, ip, mask):

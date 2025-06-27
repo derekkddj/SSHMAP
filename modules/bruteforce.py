@@ -2,6 +2,7 @@ from .SSHSession import SSHSession
 from .logger import sshmap_logger
 import asyncio
 from .config import CONFIG
+import random
 
 
 class Result:
@@ -24,7 +25,7 @@ class Result:
 
 
 async def try_single_credential(
-    host, port, credential, jumper=None, credential_store=None
+    host, port, credential, jumper=None, credential_store=None, ssh_session_manager=None
 ):
     """Class to attempt a single credential authentication.
     This function tries to authenticate using either a password or a keyfile.
@@ -55,7 +56,12 @@ async def try_single_credential(
                     f"[DEBUG] Trying password authentication for {user}:{password}@{host}:{port}"
                 )
                 ssh = SSHSession(
-                    host, user, password=password, port=port, jumper=jumper, key_objects=credential_store.key_objects
+                    host,
+                    user,
+                    password=password,
+                    port=port,
+                    jumper=jumper,
+                    key_objects=credential_store.key_objects,
                 )
 
                 if await asyncio.wait_for(
@@ -66,10 +72,15 @@ async def try_single_credential(
                     )
                     # Store the credential in the CredentialStore
                     await credential_store.store(host, port, user, password, "password")
-                    return Result(user, "password", ssh, password)
+
+                    nssh = await ssh_session_manager.add_session(
+                        ssh.get_remote_hostname(), ssh, user, "password", password
+                    )
+
+                    return Result(user, "password", nssh, password)
             except asyncio.TimeoutError:
-                sshmap_logger.warning(
-                    f"[TIMEOUT] Password authentication timed out for {user}@{host}:{port} with password: {password}"
+                sshmap_logger.error(
+                    f"[TIMEOUT] Password authentication timed out for {user}@{host}:{port} with password: {password} and jump {jumper.get_host() if jumper else None}"
                 )
                 return None
             except Exception as e:
@@ -79,13 +90,20 @@ async def try_single_credential(
                 return None
         elif credential.method == "keyfile":
             keyfile = credential.secret
-            sshmap_logger.info(f"[INFO] Keyfile authentication method selected, keyfile {keyfile} and key_obj: {credential_store.key_objects.get(keyfile)}")
+            sshmap_logger.info(
+                f"[INFO] Keyfile authentication method selected, keyfile {keyfile} and key_obj: {credential_store.key_objects.get(keyfile)}"
+            )
             try:
                 sshmap_logger.debug(
                     f"[DEBUG] Trying keyfile authentication for {user}:{keyfile}@{host}:{port}"
                 )
                 ssh = SSHSession(
-                    host, user, key_filename=keyfile, port=port, jumper=jumper, key_objects=credential_store.key_objects
+                    host,
+                    user,
+                    key_filename=keyfile,
+                    port=port,
+                    jumper=jumper,
+                    key_objects=credential_store.key_objects,
                 )
                 if await asyncio.wait_for(
                     ssh.connect(), timeout=CONFIG["scan_timeout"]
@@ -95,10 +113,16 @@ async def try_single_credential(
                     )
                     # Store the credential in the CredentialStore
                     await credential_store.store(host, port, user, keyfile, "keyfile")
-                    return Result(user, "keyfile", ssh, keyfile)
+                    # Add the session to the SSHSessionManager
+
+                    nssh = await ssh_session_manager.add_session(
+                        ssh.get_remote_hostname(), ssh, user, "keyfile", keyfile
+                    )
+
+                    return Result(user, "keyfile", nssh, keyfile)
             except asyncio.TimeoutError:
-                sshmap_logger.warning(
-                    f"[TIMEOUT] Keyfile authentication timed out for {user}@{host}:{port} with keyfile: {keyfile}"
+                sshmap_logger.error(
+                    f"[TIMEOUT] Keyfile authentication timed out for {user}@{host}:{port} with keyfile: {keyfile} and jump {jumper.get_host() if jumper else None}"
                 )
                 return None
             except Exception as e:
@@ -116,7 +140,14 @@ async def try_single_credential(
     return None
 
 
-async def try_all(host, port, maxworkers=10, jumper=None, credential_store=None):
+async def try_all(
+    host,
+    port,
+    maxworkers=25,
+    jumper=None,
+    credential_store=None,
+    ssh_session_manager=None,
+):
     """Try all combinations of users, passwords, and keyfiles against a target host.
 
     Args:
@@ -125,7 +156,7 @@ async def try_all(host, port, maxworkers=10, jumper=None, credential_store=None)
         users (list): List of usernames for authentication.
         passwords (list): List of passwords for authentication.
         keyfiles (list): List of keyfiles for authentication.
-        maxworkers (int, optional): Maximum number of workers for concurrent attempts. Defaults to 4.
+        maxworkers (int, optional): Maximum number of workers for concurrent attempts. Defaults to 25.
 
     Returns:
         list: List of Result objects for successful authentication attempts.
@@ -135,20 +166,28 @@ async def try_all(host, port, maxworkers=10, jumper=None, credential_store=None)
     )
     results = []
     tasks = []
-
+    semaphore = asyncio.Semaphore(maxworkers)
     # Schedule all credential attempts as async tasks
-    for credential in credential_store.get_credentials_host_and_bruteforce(host, port):
-        sshmap_logger.debug(
-            f"[TASK] Scheduling authentication attempt for {credential.user}@{host}:{port} using {credential.method}"
-        )
-        task = asyncio.create_task(
-            try_single_credential(
-                host, port, credential, jumper=jumper, credential_store=credential_store
-            )
-        )
-        tasks.append(task)
+    credentials = credential_store.get_credentials_host_and_bruteforce(host, port)
 
-    # Wait for all tasks to complete
+    async def limited_try(credential):
+        async with semaphore:
+            return await try_single_credential(
+                host,
+                port,
+                credential,
+                jumper=jumper,
+                credential_store=credential_store,
+                ssh_session_manager=ssh_session_manager,
+            )
+
+    # Launch all credential attempts
+    random.shuffle(credentials)  # Shuffle in-place
+    for cred in credentials:
+        sshmap_logger.info(
+            f"[TASK] Scheduling auth attempt for {cred.user}@{host}:{port} with {cred.method}"
+        )
+        tasks.append(asyncio.create_task(limited_try(cred)))
     try:
         completed = await asyncio.gather(*tasks)
     except KeyboardInterrupt:
@@ -157,11 +196,13 @@ async def try_all(host, port, maxworkers=10, jumper=None, credential_store=None)
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         sshmap_logger.error("[CANCELLED] All tasks cancelled. Exiting cleanly.")
-    # Filter successful results
+        return results
+
+    # Collect successes
     for result in completed:
         if result:
             sshmap_logger.debug(
-                f"[RESULT] Successful authentication for {result.user}@{host}:{port} using {result.method}"
+                f"[RESULT] Successful auth for {result.user}@{host}:{port} using {result.method}"
             )
             results.append(result)
 
