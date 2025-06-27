@@ -2,6 +2,7 @@ from .SSHSession import SSHSession
 from .logger import sshmap_logger
 import asyncio
 from .config import CONFIG
+import random
 
 
 class Result:
@@ -78,8 +79,8 @@ async def try_single_credential(
 
                     return Result(user, "password", nssh, password)
             except asyncio.TimeoutError:
-                sshmap_logger.warning(
-                    f"[TIMEOUT] Password authentication timed out for {user}@{host}:{port} with password: {password}"
+                sshmap_logger.error(
+                    f"[TIMEOUT] Password authentication timed out for {user}@{host}:{port} with password: {password} and jump {jumper.get_host() if jumper else None}"
                 )
                 return None
             except Exception as e:
@@ -120,8 +121,8 @@ async def try_single_credential(
 
                     return Result(user, "keyfile", nssh, keyfile)
             except asyncio.TimeoutError:
-                sshmap_logger.warning(
-                    f"[TIMEOUT] Keyfile authentication timed out for {user}@{host}:{port} with keyfile: {keyfile}"
+                sshmap_logger.error(
+                    f"[TIMEOUT] Keyfile authentication timed out for {user}@{host}:{port} with keyfile: {keyfile} and jump {jumper.get_host() if jumper else None}"
                 )
                 return None
             except Exception as e:
@@ -142,7 +143,7 @@ async def try_single_credential(
 async def try_all(
     host,
     port,
-    maxworkers=10,
+    maxworkers=25,
     jumper=None,
     credential_store=None,
     ssh_session_manager=None,
@@ -155,7 +156,7 @@ async def try_all(
         users (list): List of usernames for authentication.
         passwords (list): List of passwords for authentication.
         keyfiles (list): List of keyfiles for authentication.
-        maxworkers (int, optional): Maximum number of workers for concurrent attempts. Defaults to 4.
+        maxworkers (int, optional): Maximum number of workers for concurrent attempts. Defaults to 25.
 
     Returns:
         list: List of Result objects for successful authentication attempts.
@@ -165,14 +166,12 @@ async def try_all(
     )
     results = []
     tasks = []
-
+    semaphore = asyncio.Semaphore(maxworkers)
     # Schedule all credential attempts as async tasks
-    for credential in credential_store.get_credentials_host_and_bruteforce(host, port):
-        sshmap_logger.debug(
-            f"[TASK] Scheduling authentication attempt for {credential.user}@{host}:{port} using {credential.method}"
-        )
-        task = asyncio.create_task(
-            try_single_credential(
+    credentials = credential_store.get_credentials_host_and_bruteforce(host, port)
+    async def limited_try(credential):
+        async with semaphore:
+            return await try_single_credential(
                 host,
                 port,
                 credential,
@@ -180,10 +179,14 @@ async def try_all(
                 credential_store=credential_store,
                 ssh_session_manager=ssh_session_manager,
             )
-        )
-        tasks.append(task)
 
-    # Wait for all tasks to complete
+    # Launch all credential attempts
+    random.shuffle(credentials)  # Shuffle in-place
+    for cred in credentials:
+        sshmap_logger.info(
+            f"[TASK] Scheduling auth attempt for {cred.user}@{host}:{port} with {cred.method}"
+        )
+        tasks.append(asyncio.create_task(limited_try(cred)))
     try:
         completed = await asyncio.gather(*tasks)
     except KeyboardInterrupt:
@@ -192,11 +195,13 @@ async def try_all(
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         sshmap_logger.error("[CANCELLED] All tasks cancelled. Exiting cleanly.")
-    # Filter successful results
+        return results
+
+    # Collect successes
     for result in completed:
         if result:
             sshmap_logger.debug(
-                f"[RESULT] Successful authentication for {result.user}@{host}:{port} using {result.method}"
+                f"[RESULT] Successful auth for {result.user}@{host}:{port} using {result.method}"
             )
             results.append(result)
 

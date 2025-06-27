@@ -111,9 +111,9 @@ class SSHSession:
                 f"ChannelOpenError with:{self.user}:{self.password if self.password else self.key_filename} to {self.host}:{self.port} with jump host {self.jumper.get_host() if self.jumper else None}, Error: {e.reason}"
             )
             return False
-        except Exception as e:
+        except Exception as e: # aqui aparecen muchos errores al poner varios usuarios
             self.sshmap_logger.error(
-                f"Unexpected error for {self.user}@{self.host}:{self.port} {type(e).__name__} - {e}"
+                f"Unexpected error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper.get_host() if self.jumper else None} {type(e).__name__} - {e}"
             )
             self.connection = None
             return False

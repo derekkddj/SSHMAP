@@ -61,7 +61,7 @@ async def get_remote_hostname(ssh_client):
         hostname, err = await ssh_client.exec_command_with_stderr("hostname")
         hostname = (
             hostname.strip()
-            if not err
+            if hostname # if not err?
             else ssh_client.connection.get_extra_info("peername")[0]
         )
     except AttributeError as e:
@@ -75,6 +75,7 @@ async def get_remote_hostname(ssh_client):
 
 # ssh_client is an instance of SSHSession
 async def get_remote_ip(ssh_client):
+    sshmap_logger.debug(f"Getting remote IP addresses for {ssh_client.host}")
     ip_info = []
 
     # Try `ip` command first
