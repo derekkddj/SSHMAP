@@ -55,7 +55,12 @@ async def try_single_credential(
                     f"[DEBUG] Trying password authentication for {user}:{password}@{host}:{port}"
                 )
                 ssh = SSHSession(
-                    host, user, password=password, port=port, jumper=jumper, key_objects=credential_store.key_objects
+                    host,
+                    user,
+                    password=password,
+                    port=port,
+                    jumper=jumper,
+                    key_objects=credential_store.key_objects,
                 )
 
                 if await asyncio.wait_for(
@@ -66,7 +71,7 @@ async def try_single_credential(
                     )
                     # Store the credential in the CredentialStore
                     await credential_store.store(host, port, user, password, "password")
-                    
+
                     nssh = await ssh_session_manager.add_session(
                         ssh.get_remote_hostname(), ssh, user, "password", password
                     )
@@ -84,13 +89,20 @@ async def try_single_credential(
                 return None
         elif credential.method == "keyfile":
             keyfile = credential.secret
-            sshmap_logger.info(f"[INFO] Keyfile authentication method selected, keyfile {keyfile} and key_obj: {credential_store.key_objects.get(keyfile)}")
+            sshmap_logger.info(
+                f"[INFO] Keyfile authentication method selected, keyfile {keyfile} and key_obj: {credential_store.key_objects.get(keyfile)}"
+            )
             try:
                 sshmap_logger.debug(
                     f"[DEBUG] Trying keyfile authentication for {user}:{keyfile}@{host}:{port}"
                 )
                 ssh = SSHSession(
-                    host, user, key_filename=keyfile, port=port, jumper=jumper, key_objects=credential_store.key_objects
+                    host,
+                    user,
+                    key_filename=keyfile,
+                    port=port,
+                    jumper=jumper,
+                    key_objects=credential_store.key_objects,
                 )
                 if await asyncio.wait_for(
                     ssh.connect(), timeout=CONFIG["scan_timeout"]
@@ -101,7 +113,7 @@ async def try_single_credential(
                     # Store the credential in the CredentialStore
                     await credential_store.store(host, port, user, keyfile, "keyfile")
                     # Add the session to the SSHSessionManager
-                    
+
                     nssh = await ssh_session_manager.add_session(
                         ssh.get_remote_hostname(), ssh, user, "keyfile", keyfile
                     )
@@ -127,7 +139,14 @@ async def try_single_credential(
     return None
 
 
-async def try_all(host, port, maxworkers=10, jumper=None, credential_store=None, ssh_session_manager=None):
+async def try_all(
+    host,
+    port,
+    maxworkers=10,
+    jumper=None,
+    credential_store=None,
+    ssh_session_manager=None,
+):
     """Try all combinations of users, passwords, and keyfiles against a target host.
 
     Args:
@@ -154,7 +173,12 @@ async def try_all(host, port, maxworkers=10, jumper=None, credential_store=None,
         )
         task = asyncio.create_task(
             try_single_credential(
-                host, port, credential, jumper=jumper, credential_store=credential_store, ssh_session_manager=ssh_session_manager
+                host,
+                port,
+                credential,
+                jumper=jumper,
+                credential_store=credential_store,
+                ssh_session_manager=ssh_session_manager,
             )
         )
         tasks.append(task)

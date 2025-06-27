@@ -241,7 +241,7 @@ ssh_brute_project/
 │   ├── paths.py          # Helper class for managing store paths
 │   ├── SSHSession.py     # Wrapper for a SSH connection with info about the "JUMP"
 │   ├── SSHSeessionManager.py # manager of SSHSessions, crete, save, and reuse
-│   └── utils.py          # Utils and functions
+└── └── utils.py          # Utils and functions
 ```
 ### Future Work
 
@@ -250,3 +250,5 @@ ssh_brute_project/
 - [ ] Create POST-Explotation modules, like launch linpeas or linux exploit suggester
 - [ ] Better clean stop after Ctrl-C
 - [x] Session manager, to close and create SSH tunnels bettter
+- [ ] The SSHSessionManager must try to connect to the machine with various jumps if one of them does not work. How to "blacklist" an specific node?
+- [x] Timestamt de los intentos realizados, en el fichero de log

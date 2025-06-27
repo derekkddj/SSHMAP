@@ -20,7 +20,7 @@ from modules.console import nxc_console
 from rich.table import Table
 from rich.live import Live
 from modules.SSHSessionManager import SSHSessionManager
-
+from datetime import datetime
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -41,6 +41,9 @@ ssh_ports = CONFIG["ssh_ports"]
 # Max depth for the ssh scan
 max_depth = CONFIG["max_depth"]
 # Thread-safe function to handle a target
+
+# Date of running
+currenttime = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 console = nxc_console
 visited_attempts = set()
@@ -190,7 +193,7 @@ async def handle_target(
                                 f"Already scanned from {remote_hostname}. Skipping."
                             )
     except asyncio.CancelledError:
-        print(f"{target} was cancelled in handle target.")
+        sshmap_logger.error(f"{target} was cancelled in handle target.")
         raise
 
 
@@ -380,15 +383,27 @@ def main():
     parser.add_argument(
         "--maxworkers", type=int, default=100, help="Number of workers for target"
     )
-    parser.add_argument("--maxdepth", type=int, default=1, help="Depth of the scan")
+    parser.add_argument("--maxdepth", type=int, default=5, help="Max depth of the scan")
     parser.add_argument(
         "--debug", action="store_true", help="enable debug level information"
     )
     parser.add_argument("--verbose", action="store_true", help="enable verbose output")
+    parser.add_argument("--log", action="store_true", help="enable logging to file")
+    parser.add_argument(
+        "--log-file",
+        default=f"{currenttime}_SSHMAP_SCAN.log",
+        help="Path to the log file",
+    )
 
     args = parser.parse_args()
     global max_depth
     max_depth = args.maxdepth
+
+    if args.log:
+        # Set up logging to a file
+        log_file = args.log_file
+        sshmap_logger.add_file_log(log_file)
+        sshmap_logger.display(f"Logging to file: {log_file}")
 
     sshmap_logger.debug("Starting async_main with args: %s", args)
     # Check if Neo4J database is running
@@ -408,4 +423,7 @@ if __name__ == "__main__":
         import asyncio.windows_events
 
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        sshmap_logger.error("Ctrl+C received! Exiting...")
