@@ -96,6 +96,26 @@ First run the Neo4J server, the easiest way is with docker:
 docker run --env=NEO4J_AUTH=none --publish=7474:7474 --publish=7687:7687 --volume=$HOME/neo4j/data:/data -e NEO4J_apoc_export_file_enabled=true -e NEO4J_apoc_import_file_enabled=true -e NEO4J_apoc_import_file_use__neo4j__config=true -e NEO4JLABS_PLUGINS=\[\"apoc\"\] neo4j
 ```
 
+#### Windows problem
+
+Maybe in windows you need to place the plugin manually and run the docker with:
+```bash
+docker run `
+  --env NEO4J_AUTH=none `
+  --env NEO4J_apoc_export_file_enabled=true `
+  --env NEO4J_apoc_import_file_enabled=true `
+  --env NEO4J_apoc_import_file_use__neo4j__config=true `
+  --publish=7474:7474 --publish=7687:7687 `
+  --volume=${HOME}/neo4j/data:/data `
+  --volume=C:\neo4j\plugins:/plugins `
+  neo4j
+
+```
+
+You should put the plugin in *C:\neo4j\plugins*, download it from [Github APOC](https://github.com/neo4j/apoc/releases)
+
+### RUN scanner
+
 Then run the program from your starting host.
 ```bash
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
