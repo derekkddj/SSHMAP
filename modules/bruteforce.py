@@ -121,7 +121,8 @@ async def try_single_credential(
 
                     return Result(user, "keyfile", nssh, keyfile)
             except asyncio.TimeoutError:
-                sshmap_logger.error(
+                # TODO: Differentiate between timeout and auth failure
+                sshmap_logger.debug(
                     f"[TIMEOUT] Keyfile authentication timed out for {user}@{host}:{port} with keyfile: {keyfile} and jump {jumper.get_host() if jumper else None}"
                 )
                 return None
