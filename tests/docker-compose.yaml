@@ -27,7 +27,7 @@ services:
       - "2223:22"
     environment:
       - ROOT_PASSWORD=root
-    command: bash -c "echo 'root:root' | chpasswd && useradd -p $(openssl passwd -1 temporal01) test && apt update && apt install -y net-tools && /usr/sbin/sshd -D"
+    command: bash -c "echo 'root:root' | chpasswd && id test >/dev/null 2>&1 || useradd -m -p \$(openssl passwd -1 temporal01) test && apt update && apt install -y net-tools && /usr/sbin/sshd -D"
     volumes:
       - ./sshd_config:/etc/ssh/sshd_config
 
