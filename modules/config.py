@@ -10,17 +10,17 @@ class Config:
         try:
             with open(path, "r") as f:
                 self._config = yaml.safe_load(f)
-        except FileNotFoundError:
-            # Create a default config file if it doesn't exist and save it
+        except (FileNotFoundError, yaml.YAMLError):
+            # Create a default config file if it doesn't exist or is malformed
             # Create the directory if it doesn't exist
             os.makedirs(os.path.dirname(path), exist_ok=True)
             sshmap_logger.error(
-                f"Config file not found at {path}. Creating a new one with default values."
+                f"Config file not found or malformed at {path}. Creating a new one with default values."
             )
             self._config = {
                 "neo4j_uri": "bolt://localhost:7687",
                 "neo4j_user": "neo4j",
-                "neo4j_password": "neo4j",
+                "neo4j_pass": "neo4j",
                 "max_mask": 24,
                 "ssh_ports": [22, 2222, 2223],
                 "max_depth": 1,

@@ -48,6 +48,38 @@ def docker_compose():
         subprocess.run(["docker", "compose", "down"], cwd=compose_dir, capture_output=True)
 
 
+@pytest.fixture(scope="session")
+def neo4j():
+    """Session-scoped fixture to start/stop Neo4J container for e2e tests."""
+    import subprocess
+    import time
+    container_id = None
+    try:
+        # Remove any existing container with the same name
+        subprocess.run(["docker", "rm", "-f", "test-neo4j"], capture_output=True)
+        result = subprocess.run([
+            "docker", "run", "-d", "--name", "test-neo4j", "--env=NEO4J_AUTH=none",
+            "--publish=7474:7474", "--publish=7687:7687",
+            "-e", "NEO4J_apoc_export_file_enabled=true",
+            "-e", "NEO4J_apoc_import_file_enabled=true",
+            "-e", "NEO4J_apoc_import_file_use__neo4j__config=true",
+            "-e", "NEO4JLABS_PLUGINS=[\"apoc\"]",
+            "neo4j"
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            pytest.skip(f"Failed to start Neo4J container: {result.stderr}")
+        container_id = result.stdout.strip()
+
+        # Wait for Neo4J to be ready
+        time.sleep(30)
+
+        yield container_id
+    finally:
+        if container_id:
+            subprocess.run(["docker", "stop", container_id], capture_output=True)
+            subprocess.run(["docker", "rm", container_id], capture_output=True)
+
+
 @pytest.fixture
 def mock_ssh_session():
     """Factory fixture for mocked SSHSession."""
