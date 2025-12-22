@@ -9,3 +9,4 @@ asyncssh
 pyyaml
 pytest
 pytest-asyncio
+pytest-mock
