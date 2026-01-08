@@ -137,6 +137,9 @@ class SSHSession:
     def get_remote_hostname(self):
         return self.remote_hostname
 
+    def __str__(self):
+        return f"SSHSession({self.user}@{self.remote_hostname}:{self.port})"
+
     async def exec_command(self, command):
         """Execute command on remote machine."""
         if self.connection is None:

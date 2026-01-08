@@ -322,6 +322,51 @@ class GraphDB:
 
         return list(set(matching_hosts))
 
+    def get_all_hosts_detailed(self):
+        """
+        Retrieve all hosts with their IDs and full details.
+        Returns a list of dicts: [{'id': int, 'hostname': str, 'interfaces': [...]}, ...]
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                "MATCH (h:Host) RETURN id(h) AS id, h.hostname AS hostname, h.interfaces AS interfaces"
+            )
+            return [
+                {
+                    "id": record["id"],
+                    "hostname": record["hostname"],
+                    "interfaces": record["interfaces"] or [],
+                }
+                for record in result
+            ]
+
+    def get_connections_from_host(self, hostname):
+        """
+        Retrieve all SSH_ACCESS relationships originating from a given hostname.
+        Returns a list of dicts: [{'id': int, 'from': str, 'to': str, 'type': str, 'props': {...}}, ...]
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (a:Host {hostname:$hostname})-[r:SSH_ACCESS]->(b:Host)
+                RETURN id(r) AS id, a.hostname AS from, b.hostname AS to, type(r) AS type, r AS props
+                """,
+                hostname=hostname,
+            )
+            rels = []
+            for record in result:
+                props = dict(record["props"]) if record["props"] is not None else {}
+                rels.append(
+                    {
+                        "id": record["id"],
+                        "from": record["from"],
+                        "to": record["to"],
+                        "type": record["type"],
+                        "props": props,
+                    }
+                )
+            return rels
+
     def _format_path(self, path):
         """
         Helper to extract hostnames from a path.

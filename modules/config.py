@@ -22,7 +22,7 @@ class Config:
                 "neo4j_user": "neo4j",
                 "neo4j_pass": "neo4j",
                 "max_mask": 24,
-                "ssh_ports": [22, 2222, 2223],
+                "ssh_ports": [22, 2222, 2223, 2224],
                 "max_depth": 1,
                 "scan_timeout": 10,
                 "brute_new_credentials": False,
