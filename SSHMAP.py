@@ -80,12 +80,6 @@ async def handle_target(
         if current_depth > max_depth:
             sshmap_logger.info(f"Max depth {max_depth} reached. Skipping {target}")
             return
-        
-        # Check if target has already been scanned (unless force_rescan is True)
-        if not force_rescan and graph.is_target_scanned(target):
-            sshmap_logger.info(f"Target {target} already scanned. Skipping.")
-            return
-        
         source_host = start_host if current_depth == 1 else jump.get_remote_hostname()
         if jump is not None:
             sshmap_logger.info(
@@ -111,6 +105,9 @@ async def handle_target(
                     credential_store,
                     ssh_session_manager,
                     max_retries,
+                    graphdb=graph,
+                    source_hostname=source_host,
+                    force_rescan=force_rescan,
                 )
                 for res in results:
                     if res.ssh_session:
@@ -173,16 +170,6 @@ async def handle_target(
                             new_targets = [
                                 ip for ip in new_targets if ip not in blacklist_ips
                             ]
-                            # Filter out already-scanned targets unless force_rescan is True
-                            if not force_rescan:
-                                original_count = len(new_targets)
-                                scanned_targets_set = graph.are_targets_scanned(new_targets)
-                                new_targets = [ip for ip in new_targets if ip not in scanned_targets_set]
-                                skipped_count = original_count - len(new_targets)
-                                if skipped_count > 0:
-                                    sshmap_logger.info(
-                                        f"[depth:{current_depth}] Skipping {skipped_count} already-scanned targets from {remote_hostname}"
-                                    )
                             # tests with 4 ips only, for docker tests
                             """
                             new_targets = [
@@ -218,8 +205,6 @@ async def handle_target(
                 )
 
         sshmap_logger.info(f"[{target}] Bruteforce completed successfully.")
-        # Mark target as scanned
-        graph.add_scanned_target(target)
         return
     except asyncio.CancelledError:
         sshmap_logger.error(f"{target} was cancelled in handle target.")
@@ -272,18 +257,10 @@ async def async_main(args):
     # remove ips in blacklist from targets
     new_targets = [ip for ip in targets if ip not in blacklist_ips]
     
-    # Filter out already-scanned targets unless force_rescan is True
-    if not args.force_rescan:
-        original_count = len(new_targets)
-        scanned_targets = graph.are_targets_scanned(new_targets)
-        new_targets = [ip for ip in new_targets if ip not in scanned_targets]
-        skipped_count = original_count - len(new_targets)
-        if skipped_count > 0:
-            sshmap_logger.display(
-                f"Skipping {skipped_count} already-scanned targets. Use --force-rescan to rescan them."
-            )
+    if args.force_rescan:
+        sshmap_logger.display("Force rescan enabled - retrying all connection attempts including previously attempted ones.")
     else:
-        sshmap_logger.display("Force rescan enabled - scanning all targets including previously scanned ones.")
+        sshmap_logger.display("Smart scanning enabled - skipping already-attempted connections. Use --force-rescan to retry all.")
     
     sshmap_logger.display(
         f"Starting attack on {len(new_targets)} targets with max depth {max_depth}"
@@ -448,7 +425,7 @@ def main():
     parser.add_argument(
         "--force-rescan",
         action="store_true",
-        help="Force rescan of all targets, even if they were scanned before",
+        help="Force retry of already-attempted connections (ignore attempt history)",
     )
     parser.add_argument(
         "--debug", action="store_true", help="enable debug level information"

@@ -46,7 +46,7 @@ options:
 - 🧩 Modular architecture
 - ⚡ Async scanning, fast as it can be
 - 🖥️ CLI with argparse
-- 🎯 Smart scanning - skips already-scanned targets for faster subsequent runs
+- 🎯 Smart connection tracking - skips already-attempted connections for faster subsequent runs
 
 ## Screenshots
 Attacking just one machine, and using it as a jump host:
@@ -122,30 +122,41 @@ Then run the program from your starting host.
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 ```
 
-#### Smart Scanning Optimization
+#### Smart Connection Tracking
 
-SSHMAP now tracks which targets have been scanned and automatically skips them on subsequent runs, saving time and resources.
+SSHMAP now tracks all connection attempts in Neo4j and automatically skips already-attempted connections, significantly reducing scan time on subsequent runs.
+
+**How it works:**
+- Tracks each connection attempt: `from_host → to_host` with specific credentials (user, method, password/key)
+- New credentials are automatically tried from **all known hosts** to **all targets**
+- If you can connect from host A to host B, SSHMAP will also try connecting from host C to host B
+- Each unique combination is only attempted once (unless `--force-rescan` is used)
 
 **First run:**
 ```bash
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+# All connection attempts are made and recorded in Neo4j
 ```
 
-**Subsequent runs** will automatically skip already-scanned targets:
+**Subsequent runs with new credentials:**
 ```bash
+# Add new credentials to your wordlists
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
-# Only new targets will be scanned
+# Only new credential combinations are tried - already-attempted connections are automatically skipped
+# Output: "[OPTIMIZATION] Skipping N already-attempted credentials for host:port from source"
 ```
 
-**To force a full rescan** of all targets (including previously scanned ones):
+**Force retry all connections:**
 ```bash
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --force-rescan
+# Retries all connection attempts, including previously attempted ones
 ```
 
-This optimization works for:
-- Initial target IPs from the target file
-- Discovered IPs from jump host subnets
-- All scanning depths
+**Connection attempt tracking:**
+- All attempts (successful and failed) are recorded in Neo4j as `SSH_ATTEMPT` edges
+- Successful connections create additional `SSH_ACCESS` edges (existing behavior)
+- Each `SSH_ATTEMPT` edge includes: user, method, credentials, success status, and timestamp
+- Use Neo4j browser to query attempt history: `MATCH ()-[r:SSH_ATTEMPT]->() RETURN r`
 
 ### View the graph in the Neo4J console:
 

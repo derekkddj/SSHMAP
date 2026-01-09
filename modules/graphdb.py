@@ -390,84 +390,105 @@ class GraphDB:
 
         return segments
 
-    def add_scanned_target(self, ip_address):
+    def has_connection_been_attempted(self, from_hostname, to_ip, port, user, method, creds):
         """
-        Mark an IP address as scanned by storing it with a timestamp.
-        This creates or updates a ScannedTarget node with the current timestamp.
+        Check if a specific connection attempt has already been tried.
         
-        :param ip_address: The IP address that was scanned.
+        :param from_hostname: Source hostname
+        :param to_ip: Target IP address
+        :param port: Target port
+        :param user: Username for authentication
+        :param method: Authentication method (password/keyfile)
+        :param creds: Credentials (password or key path)
+        :return: True if attempt was already made, False otherwise
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (src:Host {hostname: $from_hostname})-[r:SSH_ATTEMPT]->(dst)
+                WHERE r.ip = $ip AND r.port = $port AND r.user = $user 
+                    AND r.method = $method AND r.creds = $creds
+                RETURN r
+                LIMIT 1
+                """,
+                from_hostname=from_hostname,
+                ip=to_ip,
+                port=port,
+                user=user,
+                method=method,
+                creds=creds,
+            )
+            return result.single() is not None
+
+    def record_connection_attempt(self, from_hostname, to_hostname, to_ip, port, user, method, creds, success):
+        """
+        Record a connection attempt (successful or failed).
+        
+        :param from_hostname: Source hostname
+        :param to_hostname: Target hostname (if known)
+        :param to_ip: Target IP address
+        :param port: Target port
+        :param user: Username used
+        :param method: Authentication method (password/keyfile)
+        :param creds: Credentials used
+        :param success: Whether the attempt was successful
         """
         currentmilis = round(time.time() * 1000)
         with self.driver.session() as session:
+            # Ensure target host exists (even if we don't have a hostname yet)
             session.run(
                 """
-                MERGE (st:ScannedTarget {ip: $ip})
-                SET st.last_scanned = $timestamp
+                MERGE (dst:Host {hostname: $to_hostname})
                 """,
-                ip=ip_address,
-                timestamp=currentmilis,
+                to_hostname=to_hostname if to_hostname else to_ip,
+            )
+            
+            # Record the attempt
+            session.run(
+                """
+                MATCH (src:Host {hostname: $from_hostname})
+                MATCH (dst:Host {hostname: $to_hostname})
+                MERGE (src)-[r:SSH_ATTEMPT {ip: $ip, port: $port, user: $user, method: $method, creds: $creds}]->(dst)
+                SET r.last_attempt = $time, r.success = $success
+                """,
+                from_hostname=from_hostname,
+                to_hostname=to_hostname if to_hostname else to_ip,
+                ip=to_ip,
+                port=port,
+                user=user,
+                method=method,
+                creds=creds,
+                time=currentmilis,
+                success=success,
             )
 
-    def is_target_scanned(self, ip_address):
+    def get_all_attempted_connections(self, from_hostname):
         """
-        Check if an IP address has been scanned before.
+        Get all connection attempts from a specific host.
         
-        :param ip_address: The IP address to check.
-        :return: True if the target has been scanned, False otherwise.
+        :param from_hostname: Source hostname
+        :return: List of connection attempt details
         """
         with self.driver.session() as session:
             result = session.run(
                 """
-                MATCH (st:ScannedTarget {ip: $ip})
-                RETURN st.last_scanned AS last_scanned
+                MATCH (src:Host {hostname: $from_hostname})-[r:SSH_ATTEMPT]->(dst:Host)
+                RETURN dst.hostname AS to_hostname, r.ip AS ip, r.port AS port, 
+                       r.user AS user, r.method AS method, r.creds AS creds, 
+                       r.success AS success, r.last_attempt AS last_attempt
                 """,
-                ip=ip_address,
-            )
-            record = result.single()
-            return record is not None
-
-    def get_scanned_targets(self):
-        """
-        Retrieve all scanned IP addresses.
-        
-        :return: List of IP addresses that have been scanned.
-        """
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MATCH (st:ScannedTarget)
-                RETURN st.ip AS ip, st.last_scanned AS last_scanned
-                """
+                from_hostname=from_hostname,
             )
             return [
-                {"ip": record["ip"], "last_scanned": record["last_scanned"]}
+                {
+                    "to_hostname": record["to_hostname"],
+                    "ip": record["ip"],
+                    "port": record["port"],
+                    "user": record["user"],
+                    "method": record["method"],
+                    "creds": record["creds"],
+                    "success": record["success"],
+                    "last_attempt": record["last_attempt"],
+                }
                 for record in result
             ]
-
-    def are_targets_scanned(self, ip_addresses):
-        """
-        Check if multiple IP addresses have been scanned before (batch operation).
-        
-        :param ip_addresses: List of IP addresses to check.
-        :return: Set of IP addresses that have been scanned.
-        """
-        if not ip_addresses:
-            return set()
-        
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MATCH (st:ScannedTarget)
-                WHERE st.ip IN $ips
-                RETURN st.ip AS ip
-                """,
-                ips=list(ip_addresses),
-            )
-            return {record["ip"] for record in result}
-
-    def clear_scanned_targets(self):
-        """
-        Clear all scanned target records. Useful for forcing a full rescan.
-        """
-        with self.driver.session() as session:
-            session.run("MATCH (st:ScannedTarget) DELETE st")

@@ -164,6 +164,9 @@ async def try_all(
     credential_store=None,
     ssh_session_manager=None,
     max_retries=3,
+    graphdb=None,
+    source_hostname=None,
+    force_rescan=False,
 ):
     """Try all combinations of users, passwords, and keyfiles against a target host.
 
@@ -175,6 +178,9 @@ async def try_all(
         keyfiles (list): List of keyfiles for authentication.
         maxworkers (int, optional): Maximum number of workers for concurrent attempts. Defaults to 25.
         max_retries (int, optional): Maximum number of retries for transient failures. Defaults to 3.
+        graphdb (GraphDB, optional): Graph database to track connection attempts.
+        source_hostname (str, optional): Source hostname for tracking attempts.
+        force_rescan (bool, optional): Force retry of already-attempted connections.
 
     Returns:
         list: List of Result objects for successful authentication attempts.
@@ -186,6 +192,22 @@ async def try_all(
     semaphore = asyncio.Semaphore(maxworkers)
     # Schedule all credential attempts as async tasks
     credentials = credential_store.get_credentials_host_and_bruteforce(host, port)
+    
+    # Filter out already-attempted connections unless force_rescan is True
+    if not force_rescan and graphdb and source_hostname:
+        original_count = len(credentials)
+        filtered_credentials = []
+        for cred in credentials:
+            if not graphdb.has_connection_been_attempted(
+                source_hostname, host, port, cred.user, cred.method, cred.secret
+            ):
+                filtered_credentials.append(cred)
+        credentials = filtered_credentials
+        skipped_count = original_count - len(credentials)
+        if skipped_count > 0:
+            sshmap_logger.info(
+                f"[OPTIMIZATION] Skipping {skipped_count} already-attempted credentials for {host}:{port} from {source_hostname}"
+            )
     
     # Track retry counts per credential
     retry_counts = {}
@@ -199,7 +221,7 @@ async def try_all(
                 )
                 await asyncio.sleep(0.5 * retry_attempt)  # Exponential backoff
             
-            return await try_single_credential(
+            result = await try_single_credential(
                 host,
                 port,
                 credential,
@@ -207,6 +229,23 @@ async def try_all(
                 credential_store=credential_store,
                 ssh_session_manager=ssh_session_manager,
             )
+            
+            # Record the attempt in the database
+            if graphdb and source_hostname:
+                # Get the target hostname if the connection succeeded
+                to_hostname = result.ssh_session.get_remote_hostname() if result and result.ssh_session else None
+                graphdb.record_connection_attempt(
+                    source_hostname,
+                    to_hostname if to_hostname else host,
+                    host,
+                    port,
+                    credential.user,
+                    credential.method,
+                    credential.secret,
+                    success=result is not None,
+                )
+            
+            return result
 
     # Launch all credential attempts
     random.shuffle(credentials)  # Shuffle in-place
