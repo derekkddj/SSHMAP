@@ -38,7 +38,6 @@ try:
     POSTEXPLOIT_AVAILABLE = True
 except ImportError:
     POSTEXPLOIT_AVAILABLE = False
-    sshmap_logger.warning("Post-exploitation modules not available")
 
 
 VERSION = "0.2"
@@ -310,11 +309,14 @@ async def async_main(args):
     
     # Initialize post-exploitation runner if enabled
     module_runner = None
-    if args.run_postexploit and POSTEXPLOIT_AVAILABLE:
-        module_runner = ModuleRunner()
-        sshmap_logger.display("Post-exploitation modules enabled")
-        if args.postexploit_modules:
-            sshmap_logger.display(f"Will run modules: {', '.join(args.postexploit_modules)}")
+    if args.run_postexploit:
+        if POSTEXPLOIT_AVAILABLE:
+            module_runner = ModuleRunner()
+            sshmap_logger.display("Post-exploitation modules enabled")
+            if args.postexploit_modules:
+                sshmap_logger.display(f"Will run modules: {', '.join(args.postexploit_modules)}")
+        else:
+            sshmap_logger.warning("Post-exploitation modules requested but not available - continuing without them")
     
     # Initialize SSHSSessionManager
     ssh_session_manager = SSHSessionManager(
