@@ -181,6 +181,15 @@ class SSHSession:
     async def is_connected(self) -> bool:
         if self.connection is None:
             return False
+        
+        # First check if jumper chain is healthy (recursive validation)
+        if self.jumper and not await self.jumper.is_connected():
+            self.sshmap_logger.warning(
+                f"Jumper connection for {self.host} is broken, session is invalid"
+            )
+            return False
+        
+        # Then check our own connection
         try:
             process = await self.connection.create_process("true")
             await process.wait()
