@@ -32,6 +32,14 @@ from rich.progress import (
 import random
 from modules.helpers.AsyncRandomQueue import AsyncRandomQueue
 
+# Post-exploitation support
+try:
+    from modules.postexploit.runner import ModuleRunner
+    POSTEXPLOIT_AVAILABLE = True
+except ImportError:
+    POSTEXPLOIT_AVAILABLE = False
+    sshmap_logger.warning("Post-exploitation modules not available")
+
 
 VERSION = "0.2"
 
@@ -62,6 +70,38 @@ progress = Progress(
 )
 
 
+async def run_postexploit_modules(ssh_session, module_names=None, module_runner=None):
+    """
+    Run post-exploitation modules on a compromised host.
+    
+    Args:
+        ssh_session: Active SSH session
+        module_names: List of module names to run, or None for all
+        module_runner: ModuleRunner instance
+    """
+    if not POSTEXPLOIT_AVAILABLE or not module_runner:
+        return
+    
+    try:
+        hostname = ssh_session.get_remote_hostname()
+        
+        if module_names:
+            # Run specific modules
+            sshmap_logger.info(f"[{hostname}] Running {len(module_names)} post-exploitation modules")
+            await module_runner.run_multiple_modules(module_names, ssh_session, save_results=True)
+        else:
+            # Run all available modules
+            modules = module_runner.list_available_modules()
+            if modules:
+                module_list = [m['name'] for m in modules]
+                sshmap_logger.info(f"[{hostname}] Running {len(module_list)} post-exploitation modules")
+                await module_runner.run_multiple_modules(module_list, ssh_session, save_results=True)
+        
+        sshmap_logger.success(f"[{hostname}] Post-exploitation complete")
+    except Exception as e:
+        sshmap_logger.error(f"Post-exploitation failed: {e}")
+
+
 async def handle_target(
     target,
     maxworkers_ssh,
@@ -74,6 +114,9 @@ async def handle_target(
     task_ids=None,
     ssh_session_manager=None,
     max_retries=3,
+    run_postexploit=False,
+    postexploit_modules=None,
+    module_runner=None,
 ):
     try:
         if current_depth > max_depth:
@@ -140,6 +183,15 @@ async def handle_target(
                         sshmap_logger.success(
                             f"[{target}:{port}] Successfully added SSH connection from {source_host} to {remote_hostname} with user {res.user}"
                         )
+                        
+                        # Run post-exploitation modules if enabled
+                        if run_postexploit and module_runner:
+                            await run_postexploit_modules(
+                                ssh_conn,
+                                module_names=postexploit_modules,
+                                module_runner=module_runner
+                            )
+                        
                         # keys_found = key_scanner.find_keys(ssh_conn)
                         # logger.info(f"[{target}] Keys found: {keys_found}")
                         # I need to create new jobs only if i have not used this jump before
@@ -255,6 +307,15 @@ async def async_main(args):
     sshmap_logger.display(
         f"Starting attack on {len(new_targets)} targets with max depth {max_depth}"
     )
+    
+    # Initialize post-exploitation runner if enabled
+    module_runner = None
+    if args.run_postexploit and POSTEXPLOIT_AVAILABLE:
+        module_runner = ModuleRunner()
+        sshmap_logger.display("Post-exploitation modules enabled")
+        if args.postexploit_modules:
+            sshmap_logger.display(f"Will run modules: {', '.join(args.postexploit_modules)}")
+    
     # Initialize SSHSSessionManager
     ssh_session_manager = SSHSessionManager(
         graphdb=graph, credential_store=credential_store
@@ -300,6 +361,9 @@ async def async_main(args):
                             task_ids,
                             ssh_session_manager,
                             args.max_retries,
+                            args.run_postexploit,
+                            args.postexploit_modules,
+                            module_runner,
                         )
 
                     if current_jump in task_ids:
@@ -420,6 +484,16 @@ def main():
         "--log-file",
         default=f"{currenttime}_SSHMAP_SCAN.log",
         help="Path to the log file",
+    )
+    parser.add_argument(
+        "--run-postexploit",
+        action="store_true",
+        help="Run post-exploitation modules on successfully compromised hosts",
+    )
+    parser.add_argument(
+        "--postexploit-modules",
+        nargs="+",
+        help="Specific post-exploitation modules to run (default: all modules)",
     )
 
     args = parser.parse_args()
