@@ -15,6 +15,7 @@ class SSHSession:
         port=22,
         jumper=None,
         key_objects=None,
+        attempt_id=None,
     ):
         # If jump_session is provided, use it for the connection. Must be SSHSession instance.
         self.host = host
@@ -28,6 +29,8 @@ class SSHSession:
         )
         self.remote_hostname = None  # hostname of the machine were we are connected to
         self.key_objects = key_objects
+        self.attempt_id = attempt_id
+        # Disable asyncssh logging
         logging.getLogger("asyncssh").disabled = True
         self.sshmap_logger = NXCAdapter(
             extra={
@@ -36,12 +39,12 @@ class SSHSession:
                 "port": self.port,
                 "hostname": (
                     jumper.get_remote_hostname() if jumper is not None else None
-                ),
+                )
             }
         )
         if jumper:
             # jumper is an instance of SSHSession, get the transport ip from the jumper
-            self.sshmap_logger.debug(f"[{host}:{port}] Using jumper {jumper}...")
+            self.sshmap_logger.debug(f"[{host}:{port}] Using jumper {jumper} with id {attempt_id}")
 
     async def connect(self):
         """Connect to the host using asyncssh."""
@@ -106,27 +109,33 @@ class SSHSession:
             self.remote_hostname = await get_remote_hostname(self)
             if self.password:
                 self.sshmap_logger.success(
-                    f"{self.user}:{self.password} (hostname:{self.remote_hostname})"
+                    f"{self.user}:{self.password} (hostname:{self.remote_hostname}) [id: {self.attempt_id}]"
                 )
             else:
                 self.sshmap_logger.success(
-                    f"{self.user}:{self.key_filename} (hostname:{self.remote_hostname})"
+                    f"{self.user}:{self.key_filename} (hostname:{self.remote_hostname}) [id: {self.attempt_id}]"
                 )
             return True
 
         except asyncssh.PermissionDenied:
             self.sshmap_logger.fail(
-                f"{self.user}:{self.password if self.password else self.key_filename}"
+                f"{self.user}:{self.password if self.password else self.key_filename} [id: {self.attempt_id}]"
             )
             return False
         except asyncssh.ChannelOpenError as e:
             self.sshmap_logger.info(
-                f"ChannelOpenError with:{self.user}:{self.password if self.password else self.key_filename} to {self.host}:{self.port} with jump host {self.jumper.get_host() if self.jumper else None}, Error: {e.reason}"
+                f"ChannelOpenError with:{self.user}:{self.password if self.password else self.key_filename} to {self.host}:{self.port} with jump host {self.jumper.get_host() if self.jumper else None}, id: {self.attempt_id}, Error: {e.reason}"
             )
             return False
-        except Exception as e:  # aqui aparecen muchos errores al poner varios usuarios
+        except asyncssh.ConnectionLost as e: # aqui aparecen muchos casos cuando hay mucha sobrecarga
+            # Re-raise ConnectionLost for retry logic in bruteforce.py
+            self.sshmap_logger.warning(
+                f"ConnectionLost error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper.get_host() if self.jumper else None}, id: {self.attempt_id}, Error: {e}"
+            )
+            raise
+        except Exception as e:
             self.sshmap_logger.error(
-                f"Unexpected error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper.get_host() if self.jumper else None} {type(e).__name__} - {e}"
+                f"Unexpected error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper.get_host() if self.jumper else None}, id: {self.attempt_id},  {type(e).__name__} - {e}"
             )
             self.connection = None
             return False

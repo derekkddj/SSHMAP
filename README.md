@@ -268,7 +268,7 @@ ssh_brute_project/
 - [x] Progress bars
 - [ ] Create a key_scanner, or credential_scanner, to search in new machines
 - [ ] Create POST-Explotation modules, like launch linpeas or linux exploit suggester
-- [ ] Better clean stop after Ctrl-C
+- [x] Better clean stop after Ctrl-C
 - [x] Session manager, to close and create SSH tunnels bettter
 - [ ] The SSHSessionManager must try to connect to the machine with various jumps if one of them does not work. How to "blacklist" an specific node?
 - [x] Timestamt de los intentos realizados, en el fichero de log

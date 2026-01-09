@@ -94,7 +94,7 @@ class TestTryAll:
         # Mock get_credentials_host_and_bruteforce to return one cred
         mocker.patch.object(dummy_store, 'get_credentials_host_and_bruteforce', return_value=[Credential("127.0.0.1", "22", "root", "root", "password")])
 
-        results = await try_all("127.0.0.1", 22, credential_store=dummy_store, ssh_session_manager=ssh_mgr_mock)
+        results = await try_all("127.0.0.1", 22, credential_store=dummy_store, ssh_session_manager=ssh_mgr_mock, max_retries=3)
 
         assert len(results) == 1
         assert results[0].user == "root"
@@ -108,6 +108,6 @@ class TestTryAll:
         creds = [Credential("127.0.0.1", "22", "root", "pass", "password") for _ in range(5)]
         mocker.patch.object(dummy_store, 'get_credentials_host_and_bruteforce', return_value=creds)
 
-        results = await try_all("127.0.0.1", 22, maxworkers=2, credential_store=dummy_store, ssh_session_manager=ssh_mgr_mock)
+        results = await try_all("127.0.0.1", 22, maxworkers=2, credential_store=dummy_store, ssh_session_manager=ssh_mgr_mock, max_retries=3)
 
         assert len(results) == 0  # All fail</content>

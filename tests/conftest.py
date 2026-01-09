@@ -10,7 +10,9 @@ from modules.SSHSession import SSHSession
 @pytest.fixture
 def dummy_store():
     store = CredentialStore()
-    store.store("127.0.0.1", "22", "testuser", "testpass", "password")
+    # Manually add a credential without using the async store method
+    cred = Credential("127.0.0.1", "22", "testuser", "testpass", "password")
+    store.credentials.append(cred)
     return store
 
 

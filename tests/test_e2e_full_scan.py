@@ -18,7 +18,7 @@ class TestE2EFullScan:
         users_file.close()
 
         passwords_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt')
-        passwords_file.write("root\ntemporal01\nwrongpass\n")
+        passwords_file.write("root\ntemporal01\nwrongpass\nwrongpass2\nwrongpass3")
         passwords_file.close()
 
             # Config YAML - not used, defaults are fine
@@ -62,8 +62,8 @@ class TestE2EFullScan:
             "--credentialspath", csv_file,
             "--keys", keys_dir,
             "--verbose",
-            "--maxworkers", "100",
-            "--maxworkers-ssh", "2",
+            "--maxworkers", "300",
+            "--maxworkers-ssh", "40",
         ], cwd=os.path.dirname(__file__).replace('tests', ''), capture_output=True, text=True)
 
         print("STDOUT:", result.stdout)
@@ -105,6 +105,7 @@ class TestE2EFullScan:
             log_file.write(f"Number of hosts: {len(hosts)}\n")
             log_file.write(f"Number of relationships: {len(all_rels)}\n")
             log_file.write(f"JSON export: {tmpf.name}\n")
+            log_file.write(result.stdout)
             log_file.close()
 
             print(f"Neo4j export written to: {tmpf.name}")
@@ -126,9 +127,6 @@ class TestE2EFullScan:
             }
             actual_hosts = {h["hostname"] for h in hosts}
             assert actual_hosts == expected_hosts, f"Host names mismatch.\nExpected: {expected_hosts}\nActual: {actual_hosts}"
-
-            # Check exactly 23 relationships
-            assert len(all_rels) == 23, f"Expected 23 relationships, got {len(all_rels)}"
 
             # Define expected relationships as tuples: (from_host, to_host, ip, port, method, user, creds_check)
             # For keyfile methods, creds_check is "machine5_key" (filename), for password methods it's the exact credential
@@ -168,10 +166,25 @@ class TestE2EFullScan:
                     creds_check = creds_check.split('/')[-1]
                 actual_rels.add((r["from"], r["to"], r["props"]["ip"], r["props"]["port"], r["props"]["method"], r["props"]["user"], creds_check))
 
-            assert actual_rels == expected_rels, f"Relationship mismatch.\nExpected {len(expected_rels)} rels:\n{expected_rels}\nActual {len(actual_rels)} rels:\n{actual_rels}\nMissing: {expected_rels - actual_rels}\nExtra: {actual_rels - expected_rels}"
+            # Print detailed info about missing relationships
+            missing = expected_rels - actual_rels
+            extra = actual_rels - expected_rels
+            print(f"\nRelationship count: Expected {len(expected_rels)}, Got {len(actual_rels)}")
+            if missing:
+                print(f"Missing relationships ({len(missing)}):")
+                for rel in missing:
+                    print(f"  {rel}")
+            if extra:
+                print(f"Extra relationships ({len(extra)}):")
+                for rel in extra:
+                    print(f"  {rel}")
 
-            print(f"✓ All assertions passed: 7 hosts and 22 relationships verified")
+            assert actual_rels == expected_rels, f"Relationship mismatch.\nExpected {len(expected_rels)} rels\nActual {len(actual_rels)} rels\nMissing: {missing}\nExtra: {extra}"
 
+            print("All assertions passed: 7 hosts and 23 relationships verified")
+
+        except AssertionError:
+            raise  # Re-raise assertion errors to fail the test
         except Exception as e:
             print("Warning: failed to query Neo4j details:", e)
             import traceback
@@ -182,5 +195,5 @@ class TestE2EFullScan:
         os.unlink(passwords_file.name)
         os.unlink(targets_file.name)
         os.unlink(blacklist_file.name)
-        import shutil
+
         shutil.rmtree(keys_dir)

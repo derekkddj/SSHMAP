@@ -73,6 +73,7 @@ async def handle_target(
     progress=None,
     task_ids=None,
     ssh_session_manager=None,
+    max_retries=3,
 ):
     try:
         if current_depth > max_depth:
@@ -102,6 +103,7 @@ async def handle_target(
                     jump,
                     credential_store,
                     ssh_session_manager,
+                    max_retries,
                 )
                 for res in results:
                     if res.ssh_session:
@@ -297,6 +299,7 @@ async def async_main(args):
                             progress,
                             task_ids,
                             ssh_session_manager,
+                            args.max_retries,
                         )
 
                     if current_jump in task_ids:
@@ -400,6 +403,12 @@ def main():
         type=int,
         default=25,
         help="Number of workers for ssh user:password try",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Maximum number of retries for transient connection failures",
     )
     parser.add_argument("--maxdepth", type=int, default=5, help="Max depth of the scan")
     parser.add_argument(
