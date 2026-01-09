@@ -46,6 +46,7 @@ options:
 - 🧩 Modular architecture
 - ⚡ Async scanning, fast as it can be
 - 🖥️ CLI with argparse
+- 🎯 Smart scanning - skips already-scanned targets for faster subsequent runs
 
 ## Screenshots
 Attacking just one machine, and using it as a jump host:
@@ -120,6 +121,31 @@ Then run the program from your starting host.
 ```bash
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 ```
+
+#### Smart Scanning Optimization
+
+SSHMAP now tracks which targets have been scanned and automatically skips them on subsequent runs, saving time and resources.
+
+**First run:**
+```bash
+python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+```
+
+**Subsequent runs** will automatically skip already-scanned targets:
+```bash
+python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+# Only new targets will be scanned
+```
+
+**To force a full rescan** of all targets (including previously scanned ones):
+```bash
+python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --force-rescan
+```
+
+This optimization works for:
+- Initial target IPs from the target file
+- Discovered IPs from jump host subnets
+- All scanning depths
 
 ### View the graph in the Neo4J console:
 
