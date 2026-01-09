@@ -389,3 +389,64 @@ class GraphDB:
             segments.append((src, meta, dst))
 
         return segments
+
+    def add_scanned_target(self, ip_address):
+        """
+        Mark an IP address as scanned by storing it with a timestamp.
+        This creates or updates a ScannedTarget node with the current timestamp.
+        
+        :param ip_address: The IP address that was scanned.
+        """
+        currentmilis = round(time.time() * 1000)
+        with self.driver.session() as session:
+            session.run(
+                """
+                MERGE (st:ScannedTarget {ip: $ip})
+                SET st.last_scanned = $timestamp
+                """,
+                ip=ip_address,
+                timestamp=currentmilis,
+            )
+
+    def is_target_scanned(self, ip_address):
+        """
+        Check if an IP address has been scanned before.
+        
+        :param ip_address: The IP address to check.
+        :return: True if the target has been scanned, False otherwise.
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (st:ScannedTarget {ip: $ip})
+                RETURN st.last_scanned AS last_scanned
+                """,
+                ip=ip_address,
+            )
+            record = result.single()
+            return record is not None
+
+    def get_scanned_targets(self):
+        """
+        Retrieve all scanned IP addresses.
+        
+        :return: List of IP addresses that have been scanned.
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (st:ScannedTarget)
+                RETURN st.ip AS ip, st.last_scanned AS last_scanned
+                """
+            )
+            return [
+                {"ip": record["ip"], "last_scanned": record["last_scanned"]}
+                for record in result
+            ]
+
+    def clear_scanned_targets(self):
+        """
+        Clear all scanned target records. Useful for forcing a full rescan.
+        """
+        with self.driver.session() as session:
+            session.run("MATCH (st:ScannedTarget) DELETE st")

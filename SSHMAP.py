@@ -74,11 +74,18 @@ async def handle_target(
     task_ids=None,
     ssh_session_manager=None,
     max_retries=3,
+    force_rescan=False,
 ):
     try:
         if current_depth > max_depth:
             sshmap_logger.info(f"Max depth {max_depth} reached. Skipping {target}")
             return
+        
+        # Check if target has already been scanned (unless force_rescan is True)
+        if not force_rescan and graph.is_target_scanned(target):
+            sshmap_logger.info(f"Target {target} already scanned. Skipping.")
+            return
+        
         source_host = start_host if current_depth == 1 else jump.get_remote_hostname()
         if jump is not None:
             sshmap_logger.info(
@@ -166,6 +173,15 @@ async def handle_target(
                             new_targets = [
                                 ip for ip in new_targets if ip not in blacklist_ips
                             ]
+                            # Filter out already-scanned targets unless force_rescan is True
+                            if not force_rescan:
+                                original_count = len(new_targets)
+                                new_targets = [ip for ip in new_targets if not graph.is_target_scanned(ip)]
+                                skipped_count = original_count - len(new_targets)
+                                if skipped_count > 0:
+                                    sshmap_logger.info(
+                                        f"[depth:{current_depth}] Skipping {skipped_count} already-scanned targets from {remote_hostname}"
+                                    )
                             # tests with 4 ips only, for docker tests
                             """
                             new_targets = [
@@ -201,6 +217,8 @@ async def handle_target(
                 )
 
         sshmap_logger.info(f"[{target}] Bruteforce completed successfully.")
+        # Mark target as scanned
+        graph.add_scanned_target(target)
         return
     except asyncio.CancelledError:
         sshmap_logger.error(f"{target} was cancelled in handle target.")
@@ -252,6 +270,19 @@ async def async_main(args):
     blacklist_ips = read_targets(args.blacklist) if args.blacklist else []
     # remove ips in blacklist from targets
     new_targets = [ip for ip in targets if ip not in blacklist_ips]
+    
+    # Filter out already-scanned targets unless force_rescan is True
+    if not args.force_rescan:
+        original_count = len(new_targets)
+        new_targets = [ip for ip in new_targets if not graph.is_target_scanned(ip)]
+        skipped_count = original_count - len(new_targets)
+        if skipped_count > 0:
+            sshmap_logger.display(
+                f"Skipping {skipped_count} already-scanned targets. Use --force-rescan to rescan them."
+            )
+    else:
+        sshmap_logger.display("Force rescan enabled - scanning all targets including previously scanned ones.")
+    
     sshmap_logger.display(
         f"Starting attack on {len(new_targets)} targets with max depth {max_depth}"
     )
@@ -300,6 +331,7 @@ async def async_main(args):
                             task_ids,
                             ssh_session_manager,
                             args.max_retries,
+                            args.force_rescan,
                         )
 
                     if current_jump in task_ids:
@@ -411,6 +443,11 @@ def main():
         help="Maximum number of retries for transient connection failures",
     )
     parser.add_argument("--maxdepth", type=int, default=5, help="Max depth of the scan")
+    parser.add_argument(
+        "--force-rescan",
+        action="store_true",
+        help="Force rescan of all targets, even if they were scanned before",
+    )
     parser.add_argument(
         "--debug", action="store_true", help="enable debug level information"
     )
