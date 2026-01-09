@@ -37,7 +37,7 @@ def docker_compose():
                     banner = sock.recv(100)
                     if banner.startswith(b"SSH-"):
                         break
-                except:
+                except Exception:
                     pass
                 finally:
                     sock.close()

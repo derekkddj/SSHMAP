@@ -3,7 +3,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from modules.bruteforce import try_single_credential, try_all, Result
 from modules.credential_store import Credential
-from modules.SSHSession import SSHSession
 
 
 class TestResult:
