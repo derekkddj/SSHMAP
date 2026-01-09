@@ -46,6 +46,7 @@ options:
 - 🧩 Modular architecture
 - ⚡ Async scanning, fast as it can be
 - 🖥️ CLI with argparse
+- 🎯 Post-exploitation modules for reconnaissance and data collection
 
 ## Screenshots
 Attacking just one machine, and using it as a jump host:
@@ -250,6 +251,7 @@ ssh_brute_project/
 ├── SSHMAP.py             # Main program to scan the network
 ├── sshmap_cli.py         # Simle CLI to find paths in the Neo4J database.
 ├── sshmap_execute.py     # Simle CLI to execute commands in targets, usign SSHSessionManager
+├── sshmap_postexploit.py # CLI to run post-exploitation modules on compromised hosts
 ├── modules/              # Internal modules.
 │   ├── bruteforce.py     # SSH brute logic
 │   ├── graphdb.py        # Neo4j wrapper
@@ -261,13 +263,89 @@ ssh_brute_project/
 │   ├── paths.py          # Helper class for managing store paths
 │   ├── SSHSession.py     # Wrapper for a SSH connection with info about the "JUMP"
 │   ├── SSHSeessionManager.py # manager of SSHSessions, crete, save, and reuse
+│   ├── postexploit/      # Post-exploitation module framework
+│   │   ├── base_module.py    # Abstract base class for modules
+│   │   ├── module_registry.py # Module discovery and registration
+│   │   ├── runner.py         # Module execution engine
+│   │   └── modules/          # Post-exploitation module implementations
+│   │       ├── sysinfo.py       # System information collector
+│   │       ├── fileretrieve.py  # File retrieval module
+│   │       └── netscan.py       # Network scanner module
 └── └── utils.py          # Utils and functions
 ```
+### Post-Exploitation Modules
+
+SSHMAP now includes a modular post-exploitation framework that allows you to run various modules on compromised SSH hosts. These modules can collect information, retrieve files, and perform reconnaissance tasks.
+
+#### Available Modules
+
+- **sysinfo**: Collect system information (OS, kernel, hardware, network, users)
+- **fileretrieve**: Retrieve specific files from remote hosts
+- **netscan**: Scan local network for other hosts and open ports
+
+#### Using Post-Exploitation Modules
+
+List available modules:
+```bash
+python3 sshmap_postexploit.py --list
+```
+
+Run a specific module on a host:
+```bash
+python3 sshmap_postexploit.py --hostname machine_name --module sysinfo
+```
+
+Run all modules on a host:
+```bash
+python3 sshmap_postexploit.py --hostname machine_name --all-modules
+```
+
+Results are automatically saved to `output/postexploit/{hostname}/` directory.
+
+#### Creating Custom Modules
+
+You can create your own post-exploitation modules by:
+
+1. Create a new file in `modules/postexploit/modules/`
+2. Import and inherit from `BaseModule`
+3. Implement the required properties and `run()` method
+
+Example:
+```python
+from modules.postexploit.base_module import BaseModule
+
+class MyModule(BaseModule):
+    _name = "mymodule"
+    
+    @property
+    def name(self):
+        return "mymodule"
+    
+    @property
+    def description(self):
+        return "My custom module description"
+    
+    @property
+    def category(self):
+        return "recon"  # or "exfil", "persist", etc.
+    
+    async def run(self):
+        # Use self.execute_command() to run commands
+        output = await self.execute_command("whoami")
+        
+        return {
+            'success': True,
+            'data': {'user': output.strip()}
+        }
+```
+
+Your module will be automatically discovered and available through the CLI.
+
 ### Future Work
 
 - [x] Progress bars
 - [ ] Create a key_scanner, or credential_scanner, to search in new machines
-- [ ] Create POST-Explotation modules, like launch linpeas or linux exploit suggester
+- [x] Create POST-Explotation modules, like launch linpeas or linux exploit suggester
 - [x] Better clean stop after Ctrl-C
 - [x] Session manager, to close and create SSH tunnels bettter
 - [ ] The SSHSessionManager must try to connect to the machine with various jumps if one of them does not work. How to "blacklist" an specific node?
