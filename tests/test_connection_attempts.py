@@ -76,20 +76,23 @@ class TestConnectionAttempts:
         assert kwargs['success'] is True
 
     def test_record_connection_attempt_failure(self, mock_graph):
-        """Test recording a failed connection attempt"""
+        """Test recording a failed connection attempt (hostname unknown, using IP as fallback)"""
         mock_session = MagicMock()
         mock_graph.driver.session.return_value.__enter__.return_value = mock_session
         
+        # When hostname is unknown, IP is used as fallback for to_hostname
         mock_graph.record_connection_attempt(
-            "host1", "192.168.1.1", "192.168.1.1", 22, "admin", "keyfile", "/path/to/key", False
+            "host1", None, "192.168.1.1", 22, "admin", "keyfile", "/path/to/key", False
         )
         
-        # Should call run twice
+        # Should call run twice: once to ensure host exists, once to record attempt
         assert mock_session.run.call_count == 2
         
         # Check the second call
         args, kwargs = mock_session.run.call_args
         assert kwargs['success'] is False
+        # When to_hostname is None, IP is used as hostname
+        assert kwargs['to_hostname'] == "192.168.1.1"
 
     def test_get_all_attempted_connections(self, mock_graph):
         """Test retrieving all attempted connections from a host"""
