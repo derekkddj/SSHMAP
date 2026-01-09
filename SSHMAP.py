@@ -176,7 +176,8 @@ async def handle_target(
                             # Filter out already-scanned targets unless force_rescan is True
                             if not force_rescan:
                                 original_count = len(new_targets)
-                                new_targets = [ip for ip in new_targets if not graph.is_target_scanned(ip)]
+                                scanned_targets_set = graph.are_targets_scanned(new_targets)
+                                new_targets = [ip for ip in new_targets if ip not in scanned_targets_set]
                                 skipped_count = original_count - len(new_targets)
                                 if skipped_count > 0:
                                     sshmap_logger.info(
@@ -274,7 +275,8 @@ async def async_main(args):
     # Filter out already-scanned targets unless force_rescan is True
     if not args.force_rescan:
         original_count = len(new_targets)
-        new_targets = [ip for ip in new_targets if not graph.is_target_scanned(ip)]
+        scanned_targets = graph.are_targets_scanned(new_targets)
+        new_targets = [ip for ip in new_targets if ip not in scanned_targets]
         skipped_count = original_count - len(new_targets)
         if skipped_count > 0:
             sshmap_logger.display(

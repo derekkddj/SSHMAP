@@ -82,3 +82,27 @@ class TestScannedTargets:
         mock_session.run.assert_called_once()
         args, kwargs = mock_session.run.call_args
         assert "DELETE st" in args[0]
+
+    def test_are_targets_scanned_batch(self, mock_graph):
+        """Test batch checking of multiple targets"""
+        mock_session = MagicMock()
+        mock_result = [
+            {'ip': '192.168.1.1'},
+            {'ip': '192.168.1.3'},
+        ]
+        mock_session.run.return_value = mock_result
+        mock_graph.driver.session.return_value.__enter__.return_value = mock_session
+        
+        ips_to_check = ['192.168.1.1', '192.168.1.2', '192.168.1.3', '192.168.1.4']
+        result = mock_graph.are_targets_scanned(ips_to_check)
+        
+        assert result == {'192.168.1.1', '192.168.1.3'}
+        mock_session.run.assert_called_once()
+        args, kwargs = mock_session.run.call_args
+        assert "WHERE st.ip IN $ips" in args[0]
+        assert set(kwargs['ips']) == set(ips_to_check)
+
+    def test_are_targets_scanned_empty(self, mock_graph):
+        """Test batch checking with empty list"""
+        result = mock_graph.are_targets_scanned([])
+        assert result == set()

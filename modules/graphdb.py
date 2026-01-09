@@ -444,6 +444,27 @@ class GraphDB:
                 for record in result
             ]
 
+    def are_targets_scanned(self, ip_addresses):
+        """
+        Check if multiple IP addresses have been scanned before (batch operation).
+        
+        :param ip_addresses: List of IP addresses to check.
+        :return: Set of IP addresses that have been scanned.
+        """
+        if not ip_addresses:
+            return set()
+        
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (st:ScannedTarget)
+                WHERE st.ip IN $ips
+                RETURN st.ip AS ip
+                """,
+                ips=list(ip_addresses),
+            )
+            return {record["ip"] for record in result}
+
     def clear_scanned_targets(self):
         """
         Clear all scanned target records. Useful for forcing a full rescan.
