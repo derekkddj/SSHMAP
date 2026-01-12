@@ -324,13 +324,19 @@ async def try_all(
                 
                 # If this connection was in old_connections, remove it since we successfully reconnected
                 if result.ssh_session:
-                    remote_hostname = result.ssh_session.get_remote_hostname()
-                    key = (host, port, remote_hostname)
-                    if key in old_connections:
+                    try:
+                        remote_hostname = result.ssh_session.get_remote_hostname()
+                        if remote_hostname:
+                            key = (host, port, remote_hostname)
+                            if key in old_connections:
+                                sshmap_logger.debug(
+                                    f"[FALLBACK] New connection replaces old connection to {remote_hostname}"
+                                )
+                                del old_connections[key]
+                    except Exception as e:
                         sshmap_logger.debug(
-                            f"[FALLBACK] New connection replaces old connection to {remote_hostname}"
+                            f"[FALLBACK] Could not determine remote hostname for connection: {e}"
                         )
-                        del old_connections[key]
         
         # Update tasks and mapping for next iteration
         tasks = retry_tasks
@@ -344,9 +350,21 @@ async def try_all(
         )
         for key, conn in old_connections.items():
             props = conn.get('props', {})
+            
+            # Validate that we have all required properties
+            user = props.get('user')
+            creds = props.get('creds')
+            method = props.get('method')
+            
+            if not all([user, creds, method]):
+                sshmap_logger.warning(
+                    f"[FALLBACK] Skipping connection to {conn.get('to', 'unknown')} - missing required properties (user, creds, or method)"
+                )
+                continue
+            
             sshmap_logger.info(
                 f"[FALLBACK] Re-using previous connection: {source_hostname} -> {conn['to']} "
-                f"({host}:{port}) with {props.get('user')}:{props.get('method')}"
+                f"({host}:{port}) with {user}:{method}"
             )
             
             # Try to re-establish the connection using the previous credentials
@@ -355,9 +373,9 @@ async def try_all(
                 prev_cred = Credential(
                     remote_ip=host,
                     port=str(port),
-                    user=props.get('user'),
-                    secret=props.get('creds'),
-                    method=props.get('method')
+                    user=user,
+                    secret=creds,
+                    method=method
                 )
                 
                 # Try to reconnect with the previous credentials
