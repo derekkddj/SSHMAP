@@ -91,7 +91,7 @@ async def handle_target(
             )
 
         for port in ssh_ports:
-            sshmap_logger.info(f"Scaning {target} port {port}.")
+            sshmap_logger.info(f"Scanning {target} port {port}.")
             # We can not check open ports if we are using a jump host, so we just try to connect to all ports
             if current_depth > 1 or await check_open_port(target, port):
                 sshmap_logger.info(
@@ -429,7 +429,7 @@ async def async_main(args):
     if not args.force_rescan:  # Only do this in smart scanning mode
         await scan_from_known_jump_hosts(args, ssh_session_manager, credential_store)
     
-    sshmap_logger.success("Close all SSH sessions and connections.")
+    sshmap_logger.success("Closing all SSH sessions and connections.")
     await ssh_session_manager.close_all()
     sshmap_logger.success("All tasks completed.")
 

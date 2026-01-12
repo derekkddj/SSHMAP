@@ -495,7 +495,9 @@ class GraphDB:
 
     def get_all_known_jump_hosts(self, start_hostname):
         """
-        Get all hosts that have successful SSH_ACCESS connections and can be used as jump hosts.
+        Get all hosts that have outgoing successful SSH_ACCESS connections and can be used as jump hosts.
+        A jump host is defined as any host (except start_hostname) that has at least one successful
+        outgoing SSH_ACCESS connection to another host, meaning it can be used to access other machines.
         Excludes the start_hostname itself.
         
         :param start_hostname: The starting hostname to exclude
@@ -516,7 +518,9 @@ class GraphDB:
     def get_targets_accessible_from_host(self, from_hostname):
         """
         Get all target IPs and ports that are accessible from a given host.
-        Returns targets from both SSH_ACCESS and SSH_ATTEMPT edges.
+        Returns targets from both SSH_ACCESS (successful connections) and SSH_ATTEMPT 
+        (all attempted connections, including failures) edges. This ensures we retry
+        all known targets with any new credentials, even if previous attempts failed.
         
         :param from_hostname: Source hostname
         :return: Set of (ip, port) tuples
