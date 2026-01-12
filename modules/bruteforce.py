@@ -1,5 +1,6 @@
 from .SSHSession import SSHSession
 from .logger import sshmap_logger
+from .credential_store import Credential
 import asyncio
 from .config import CONFIG
 import random
@@ -189,6 +190,7 @@ async def try_all(
         f"[START] Brute force {host}:{port} with max_workers={maxworkers}, max_retries={max_retries}"
     )
     results = []
+    new_connections_found = False  # Track if any new connections were made
     semaphore = asyncio.Semaphore(maxworkers)
     # Schedule all credential attempts as async tasks
     credentials = credential_store.get_credentials_host_and_bruteforce(host, port)
@@ -302,6 +304,7 @@ async def try_all(
                     f"[RESULT] Success: {result.method}:{result.user}@{host}:{port}"
                 )
                 results.append(result)
+                new_connections_found = True  # Mark that we found a new connection
         
         # Update tasks and mapping for next iteration
         tasks = retry_tasks
@@ -309,7 +312,7 @@ async def try_all(
 
     # If no new successful connections were found and we have graphdb access,
     # retrieve and return previous successful connections so scanning can continue
-    if not results and graphdb and source_hostname and not force_rescan:
+    if not new_connections_found and graphdb and source_hostname and not force_rescan:
         sshmap_logger.info(
             f"[FALLBACK] No new connections found from {source_hostname} to {host}:{port}. "
             f"Checking for previous successful connections from {source_hostname}."
@@ -328,7 +331,6 @@ async def try_all(
                 # Try to re-establish the connection using the previous credentials
                 try:
                     # Create a credential object for the previous connection
-                    from .credential_store import Credential
                     prev_cred = Credential(
                         remote_ip=host,
                         port=str(port),
