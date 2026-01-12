@@ -129,3 +129,45 @@ class TestConnectionAttempts:
         assert result[0]['success'] is True
         assert result[1]['to_hostname'] == 'host3'
         assert result[1]['success'] is False
+
+    def test_get_all_known_jump_hosts(self, mock_graph):
+        """Test retrieving all known jump hosts"""
+        mock_session = MagicMock()
+        mock_result = [
+            {'hostname': 'jump_host1'},
+            {'hostname': 'jump_host2'},
+        ]
+        mock_session.run.return_value = mock_result
+        mock_graph.driver.session.return_value.__enter__.return_value = mock_session
+        
+        result = mock_graph.get_all_known_jump_hosts("start_host")
+        
+        assert len(result) == 2
+        assert 'jump_host1' in result
+        assert 'jump_host2' in result
+        mock_session.run.assert_called_once()
+        args, kwargs = mock_session.run.call_args
+        assert "SSH_ACCESS" in args[0]
+        assert kwargs['start_hostname'] == "start_host"
+
+    def test_get_targets_accessible_from_host(self, mock_graph):
+        """Test retrieving targets accessible from a host"""
+        mock_session = MagicMock()
+        mock_result = [
+            {'ip': '192.168.1.1', 'port': 22},
+            {'ip': '192.168.1.2', 'port': 2222},
+            {'ip': '192.168.1.1', 'port': 22},  # Duplicate should be removed
+        ]
+        mock_session.run.return_value = mock_result
+        mock_graph.driver.session.return_value.__enter__.return_value = mock_session
+        
+        result = mock_graph.get_targets_accessible_from_host("host1")
+        
+        assert len(result) == 2  # Duplicates removed
+        assert ('192.168.1.1', 22) in result
+        assert ('192.168.1.2', 2222) in result
+        mock_session.run.assert_called_once()
+        args, kwargs = mock_session.run.call_args
+        assert "SSH_ACCESS" in args[0]
+        assert "SSH_ATTEMPT" in args[0]
+        assert kwargs['from_hostname'] == "host1"

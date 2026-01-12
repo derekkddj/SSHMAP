@@ -492,3 +492,42 @@ class GraphDB:
                 }
                 for record in result
             ]
+
+    def get_all_known_jump_hosts(self, start_hostname):
+        """
+        Get all hosts that have successful SSH_ACCESS connections and can be used as jump hosts.
+        Excludes the start_hostname itself.
+        
+        :param start_hostname: The starting hostname to exclude
+        :return: List of hostnames that can be used as jump hosts
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (h:Host)
+                WHERE h.hostname <> $start_hostname
+                AND EXISTS((h)-[:SSH_ACCESS]->())
+                RETURN DISTINCT h.hostname AS hostname
+                """,
+                start_hostname=start_hostname,
+            )
+            return [record["hostname"] for record in result]
+
+    def get_targets_accessible_from_host(self, from_hostname):
+        """
+        Get all target IPs and ports that are accessible from a given host.
+        Returns targets from both SSH_ACCESS and SSH_ATTEMPT edges.
+        
+        :param from_hostname: Source hostname
+        :return: Set of (ip, port) tuples
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (src:Host {hostname: $from_hostname})-[r]->(dst:Host)
+                WHERE type(r) = 'SSH_ACCESS' OR type(r) = 'SSH_ATTEMPT'
+                RETURN DISTINCT r.ip AS ip, r.port AS port
+                """,
+                from_hostname=from_hostname,
+            )
+            return {(record["ip"], record["port"]) for record in result}

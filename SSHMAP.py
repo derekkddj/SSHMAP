@@ -233,6 +233,94 @@ async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips):
             queue.task_done()
 
 
+async def scan_from_known_jump_hosts(args, ssh_session_manager, credential_store):
+    """
+    Scan from all previously discovered jump hosts to ensure new credentials
+    are tried from all known sources to all known targets.
+    
+    This handles the edge case where:
+    - A new credential only works on a machine accessible through a jump host
+    - The new credential doesn't work on the jump host itself
+    - Without this, we'd never try the new credential from the jump host
+    """
+    sshmap_logger.display("[ADDITIONAL SCAN] Checking for new credentials from known jump hosts...")
+    
+    # Get all known jump hosts from the database
+    jump_hosts = graph.get_all_known_jump_hosts(start_host)
+    
+    if not jump_hosts:
+        sshmap_logger.info("No known jump hosts found in database. Skipping additional scan.")
+        return
+    
+    sshmap_logger.display(f"Found {len(jump_hosts)} known jump host(s) to scan from: {', '.join(jump_hosts)}")
+    
+    for jump_hostname in jump_hosts:
+        try:
+            # Try to establish a session to this jump host using known credentials
+            sshmap_logger.info(f"Attempting to establish session to jump host: {jump_hostname}")
+            jump_session = await ssh_session_manager.get_session(jump_hostname, start_host)
+            
+            if not jump_session or not await jump_session.is_connected():
+                sshmap_logger.warning(f"Could not establish session to {jump_hostname}, skipping.")
+                continue
+            
+            sshmap_logger.info(f"Successfully connected to jump host: {jump_hostname}")
+            
+            # Get all targets that are accessible from this jump host
+            targets = graph.get_targets_accessible_from_host(jump_hostname)
+            
+            if not targets:
+                sshmap_logger.info(f"No targets found accessible from {jump_hostname}")
+                continue
+            
+            sshmap_logger.display(f"Scanning {len(targets)} target(s) from {jump_hostname} with all credentials")
+            
+            # Try all credentials from this jump host to each target
+            for target_ip, target_port in targets:
+                sshmap_logger.info(f"Trying credentials from {jump_hostname} to {target_ip}:{target_port}")
+                
+                results = await bruteforce.try_all(
+                    target_ip,
+                    target_port,
+                    args.maxworkers_ssh,
+                    jump_session,
+                    credential_store,
+                    ssh_session_manager,
+                    args.max_retries,
+                    graphdb=graph,
+                    source_hostname=jump_hostname,
+                    force_rescan=args.force_rescan,
+                )
+                
+                # Process any successful connections
+                for res in results:
+                    if res.ssh_session:
+                        ssh_conn = res.get_ssh_connection()
+                        remote_hostname = await get_remote_hostname(ssh_conn)
+                        remote_ips = await get_remote_ip(ssh_conn)
+                        
+                        sshmap_logger.success(
+                            f"[NEW CONNECTION] {jump_hostname} -> {remote_hostname} ({target_ip}:{target_port}) with {res.user}:{res.method}"
+                        )
+                        
+                        graph.add_host(remote_hostname, remote_ips)
+                        graph.add_ssh_connection(
+                            from_hostname=jump_hostname,
+                            to_hostname=remote_hostname,
+                            user=res.user,
+                            method=res.method,
+                            creds=res.creds,
+                            ip=target_ip,
+                            port=target_port,
+                        )
+                        
+        except Exception as e:
+            sshmap_logger.error(f"Error scanning from jump host {jump_hostname}: {e}")
+            continue
+    
+    sshmap_logger.display("[ADDITIONAL SCAN] Completed scanning from known jump hosts.")
+
+
 async def async_main(args):
     setup_debug_logging()
     credential_store = CredentialStore(args.credentialspath)
@@ -335,6 +423,12 @@ async def async_main(args):
             graph.close()
 
         print_jumphosts(visited_attempts)
+    
+    # After the main scan, scan from known jump hosts to catch any new credentials
+    # that might work on targets only accessible through jump hosts
+    if not args.force_rescan:  # Only do this in smart scanning mode
+        await scan_from_known_jump_hosts(args, ssh_session_manager, credential_store)
+    
     sshmap_logger.success("Close all SSH sessions and connections.")
     await ssh_session_manager.close_all()
     sshmap_logger.success("All tasks completed.")

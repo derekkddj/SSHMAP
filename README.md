@@ -144,12 +144,33 @@ python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --p
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 # Only new credential combinations are tried - already-attempted connections are automatically skipped
 # Output: "[OPTIMIZATION] Skipping N already-attempted credentials for host:port from source"
+# After initial scan, automatically scans from all previously discovered jump hosts
+# Output: "[ADDITIONAL SCAN] Checking for new credentials from known jump hosts..."
 ```
+
+**How the additional scan works:**
+When you add new credentials and run a second scan:
+1. **Initial scan**: Tries new credentials on directly reachable targets
+2. **Additional scan**: Automatically connects to all previously discovered jump hosts (using known credentials) and tries the new credentials from there
+
+This ensures that:
+- If a new credential only works on a machine accessible through a jump host
+- And the new credential doesn't work on the jump host itself
+- The system will still find the connection by re-establishing the jump host session and trying from there
+
+**Example scenario:**
+- First run discovers: `machine1 → machine2 → machine3` (with old credentials)
+- You add credential `test:test123` that only works on machine3
+- Second run: 
+  - Tries `test:test123` from machine1 to machine2 → fails
+  - Additional scan: Re-connects to machine2 using old credentials
+  - Tries `test:test123` from machine2 to machine3 → succeeds! ✓
 
 **Force retry all connections:**
 ```bash
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --force-rescan
 # Retries all connection attempts, including previously attempted ones
+# Skips the additional jump host scan (not needed when force-rescanning everything)
 ```
 
 **Connection attempt tracking:**
