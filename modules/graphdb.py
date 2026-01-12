@@ -17,7 +17,14 @@ class GraphDB:
         self._lock = None  # Initialize lazily when needed
 
     def close(self):
-        # Flush any remaining attempts before closing
+        """Close the driver and flush any remaining attempts.
+        
+        Note: This is a synchronous method and should be called after all async 
+        operations are complete. It will flush any remaining queued attempts 
+        synchronously before closing the database connection.
+        """
+        # Flush any remaining attempts before closing (synchronous flush is safe here
+        # because this is a cleanup method called after all async operations complete)
         if self._attempt_queue:
             self._flush_attempts_sync()
         self.driver.close()
@@ -82,7 +89,7 @@ class GraphDB:
                 return
             
             # Run the synchronous flush in a thread pool
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._flush_attempts_sync)
 
     def write_ssh_config_for_path(
