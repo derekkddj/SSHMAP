@@ -50,7 +50,7 @@ async def try_single_credential(
     attempt_id = str(uuid.uuid4())[:8]  # Use first 8 chars for readability
     jumper_info = f"{jumper.get_remote_hostname()}@{jumper.get_host()}" if jumper else "direct"
     sshmap_logger.info(
-        f"[START:{attempt_id}] {credential.method}:{credential.user}@{host}:{port} via {jumper_info}"
+        f"[START:{attempt_id}] {credential.user}:{credential.secret}@{host}:{port} via {jumper_info}"
     )
     try:
         user = credential.user
@@ -85,17 +85,17 @@ async def try_single_credential(
 
                     return Result(user, "password", nssh, password)
             except asyncio.TimeoutError:
-                sshmap_logger.warning(
+                sshmap_logger.debug(
                     f"[TIMEOUT:{attempt_id}] password:{user}@{host}:{port} via {jumper_info}"
                 )
                 return None
             except asyncssh.ConnectionLost as e:
-                sshmap_logger.info(
+                sshmap_logger.debug(
                     f"[CONNECTIONLOST:{attempt_id}] password:{user}@{host}:{port} via {jumper_info} - {e}"
                 )
                 raise  # Re-raise for retry logic
             except Exception as e:
-                sshmap_logger.warning(
+                sshmap_logger.debug(
                     f"[FAILED:{attempt_id}] password:{user}@{host}:{port} via {jumper_info} - {type(e).__name__}: {e}"
                 )
                 return None
@@ -135,12 +135,12 @@ async def try_single_credential(
                 )
                 return None
             except asyncssh.ConnectionLost as e:
-                sshmap_logger.info(
+                sshmap_logger.debug(
                     f"[CONNECTIONLOST:{attempt_id}] keyfile:{user}@{host}:{port} via {jumper_info} - {e}"
                 )
                 raise  # Re-raise for retry logic
             except Exception as e:
-                sshmap_logger.warning(
+                sshmap_logger.debug(
                     f"[FAILED:{attempt_id}] keyfile:{user}@{host}:{port} via {jumper_info} - {type(e).__name__}: {e}"
                 )
                 return None
@@ -187,7 +187,7 @@ async def try_all(
         list: List of Result objects for successful authentication attempts.
     """
     sshmap_logger.info(
-        f"[START] Brute force {host}:{port} with max_workers={maxworkers}, max_retries={max_retries}"
+        f"[START] Brute force {host}:{port} with max_workers={maxworkers}, max_retries={max_retries} from source_hostname={source_hostname}"
     )
     results = []
     semaphore = asyncio.Semaphore(maxworkers)
@@ -225,7 +225,7 @@ async def try_all(
         skipped_count = original_count - len(credentials)
         if skipped_count > 0:
             sshmap_logger.info(
-                f"[OPTIMIZATION] Skipping {skipped_count} already-attempted credentials for {host}:{port} from {source_hostname}"
+                f"[OPTIMIZATION] Skipping {skipped_count} already-attempted credentials to {host}:{port} from {source_hostname}"
             )
     
     # Track retry counts per credential
@@ -305,7 +305,7 @@ async def try_all(
                 # Check if it's a transient error and we haven't exceeded retries
                 if isinstance(result, asyncssh.ConnectionLost) and retry_counts[id(cred)] < max_retries - 1:
                     retry_counts[id(cred)] += 1
-                    sshmap_logger.info(
+                    sshmap_logger.debug(
                         f"[TRANSIENT] {cred.method}:{cred.user}@{host}:{port} - Scheduling retry {retry_counts[id(cred)]}/{max_retries-1}"
                     )
                     retry_task = asyncio.create_task(limited_try(cred, retry_attempt=retry_counts[id(cred)]))

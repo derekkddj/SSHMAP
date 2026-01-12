@@ -78,12 +78,12 @@ async def handle_target(
 ):
     try:
         if current_depth > max_depth:
-            sshmap_logger.info(f"Max depth {max_depth} reached. Skipping {target}")
+            sshmap_logger.debug(f"Max depth {max_depth} reached. Skipping {target}")
             return
         source_host = start_host if current_depth == 1 else jump.get_remote_hostname()
         if jump is not None:
             sshmap_logger.info(
-                f"New handle_target with target:{target} with jump {jump.get_host()} and current depth {current_depth} starting from {source_host}"
+                f"New handle_target with target:{target} with jump {jump} and current depth {current_depth} starting from {source_host}"
             )
         else:
             sshmap_logger.info(
@@ -91,10 +91,10 @@ async def handle_target(
             )
 
         for port in ssh_ports:
-            sshmap_logger.info(f"Scanning {target} port {port}.")
+            sshmap_logger.debug(f"Scanning {target} port {port}.")
             # We can not check open ports if we are using a jump host, so we just try to connect to all ports
             if current_depth > 1 or await check_open_port(target, port):
-                sshmap_logger.info(
+                sshmap_logger.debug(
                     f"[{target}] Port {port} is open, starting bruteforce..."
                 )
                 results = await bruteforce.try_all(
@@ -115,17 +115,17 @@ async def handle_target(
                         ssh_conn = res.get_ssh_connection()
                         # Add the target to the graph
                         # Get the remote hostname and IPs
-                        sshmap_logger.info(
+                        sshmap_logger.debug(
                             f"[{target}:{port}] Get remote hostname and IPs"
                         )
                         # Use the hostname that was already retrieved during connection
                         remote_hostname = ssh_conn.get_remote_hostname()
                         remote_ips = await get_remote_ip(ssh_conn)
 
-                        sshmap_logger.info(
+                        sshmap_logger.debug(
                             f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}"
                         )
-                        sshmap_logger.info(
+                        sshmap_logger.debug(
                             f"[{target}:{port}] Net info target: {remote_hostname} with IPs: {remote_ips}"
                         )
                         graph.add_host(remote_hostname, remote_ips)
@@ -201,11 +201,11 @@ async def handle_target(
                                 f"Already scanned from {remote_hostname}. Skipping."
                             )
             else:
-                sshmap_logger.info(
+                sshmap_logger.debug(
                     f"[{target}] No open ports found, skipping bruteforce."
                 )
 
-        sshmap_logger.info(f"[{target}] Bruteforce completed successfully.")
+        sshmap_logger.info(f"[{target}] Bruteforce completed successfully from {source_host} with jump {jump if jump else 'None'}.")
         return
     except asyncio.CancelledError:
         sshmap_logger.error(f"{target} was cancelled in handle target.")

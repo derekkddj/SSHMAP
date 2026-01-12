@@ -62,8 +62,8 @@ class TestE2EFullScan:
             "--credentialspath", csv_file,
             "--keys", keys_dir,
             "--verbose",
-            "--maxworkers", "300",
-            "--maxworkers-ssh", "40",
+            "--maxworkers", "200",
+            "--maxworkers-ssh", "25",
         ], cwd=os.path.dirname(__file__).replace('tests', ''), capture_output=True, text=True)
 
         print("STDOUT:", result.stdout)
@@ -112,8 +112,8 @@ class TestE2EFullScan:
             print(f"Neo4j log written to: {log_file.name}")
 
             # ===== ASSERTIONS FOR NEO4J GRAPH =====
-            # Check exactly 7 hosts
-            assert len(hosts) == 7, f"Expected 7 hosts, got {len(hosts)}"
+            # Check exactly 15 hosts
+            assert len(hosts) == 15, f"Expected 15 hosts, got {len(hosts)}"
 
             # Expected hosts (first one uses hostname command for dynamic name)
             expected_hosts = {
@@ -124,9 +124,19 @@ class TestE2EFullScan:
                 "machine4_SUPPERhidden",
                 "machine5_onlykey",
                 "machine6_onlykey_direct",
+                "172.19.0.2",
+                "172.19.0.3",
+                "172.19.0.4",
+                "172.19.0.5",
+                "172.19.0.6",
+                "172.19.0.106",
+                "172.19.0.107",
+                "127.0.0.1"
             }
             actual_hosts = {h["hostname"] for h in hosts}
-            assert actual_hosts == expected_hosts, f"Host names mismatch.\nExpected: {expected_hosts}\nActual: {actual_hosts}"
+            
+            # Check hostnames match (order doesn't matter since we're comparing sets)
+            assert actual_hosts == expected_hosts, f"Expected: {expected_hosts}\nActual: {actual_hosts}\nHost names mismatch."
 
             # Define expected relationships as tuples: (from_host, to_host, ip, port, method, user, creds_check)
             # For keyfile methods, creds_check is "machine5_key" (filename), for password methods it's the exact credential

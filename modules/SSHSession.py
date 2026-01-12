@@ -124,18 +124,18 @@ class SSHSession:
             return False
         except asyncssh.ChannelOpenError as e:
             self.sshmap_logger.info(
-                f"ChannelOpenError with:{self.user}:{self.password if self.password else self.key_filename} to {self.host}:{self.port} with jump host {self.jumper.get_host() if self.jumper else None}, id: {self.attempt_id}, Error: {e.reason}"
+                f"ChannelOpenError with:{self.user}:{self.password if self.password else self.key_filename} to {self.host}:{self.port} with jump host {self.jumper if self.jumper else None}, id: {self.attempt_id}, Error: {e.reason}"
             )
             return False
         except asyncssh.ConnectionLost as e: # aqui aparecen muchos casos cuando hay mucha sobrecarga
             # Re-raise ConnectionLost for retry logic in bruteforce.py
             self.sshmap_logger.warning(
-                f"ConnectionLost error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper.get_host() if self.jumper else None}, id: {self.attempt_id}, Error: {e}"
+                f"ConnectionLost error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper if self.jumper else None}, id: {self.attempt_id}, Error: {e}"
             )
             raise
         except Exception as e:
             self.sshmap_logger.error(
-                f"Unexpected error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper.get_host() if self.jumper else None}, id: {self.attempt_id},  {type(e).__name__} - {e}"
+                f"Unexpected error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper if self.jumper else None}, id: {self.attempt_id},  {type(e).__name__} - {e}"
             )
             self.connection = None
             return False
