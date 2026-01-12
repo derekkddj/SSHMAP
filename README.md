@@ -150,18 +150,18 @@ python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --p
 
 **How the fallback mechanism works:**
 When you add new credentials and run a second scan:
-1. **Initial scan**: Tries new credentials on all reachable targets
-2. **Automatic fallback**: If no new connections are found to a target, the system automatically:
-   - Queries the database for previous successful connections from the current host
-   - Re-establishes those connections using the previously successful credentials
-   - Returns them so scanning continues through previously discovered paths
+1. **Load previous connections**: At the start of bruteforce, loads all previous successful connections from the current host to the target
+2. **Try new credentials**: Attempts all new credentials on the target
+3. **Track successful reconnections**: When a new connection succeeds to a target that had a previous connection, marks that old connection as replaced
+4. **Re-establish remaining connections**: After trying all new credentials, re-establishes any previous connections that weren't replaced
 
 This ensures that:
 - New credentials are tried at every level of the network
-- If new credentials don't work at one level, scanning continues through previously discovered paths
+- **All** previously discovered paths are maintained, not just one
+- If a host has connections to multiple targets, and only some connections are re-established with new credentials, the others are still maintained
 - Works recursively at any depth (machine1 → machine2 → machine3 → machine4...)
 
-**Example scenario:**
+**Example scenario (single path):**
 - First run discovers: `machine1 → machine2 → machine3 → machine4` (with old credentials)
 - You add credential `test:test123` that only works on `machine3 → machine4`
 - Second run: 
@@ -170,6 +170,15 @@ This ensures that:
   - Tries `test:test123` from machine2 to machine3 → fails
   - Fallback: Re-uses previous connection machine2 → machine3 with old credentials
   - Tries `test:test123` from machine3 to machine4 → succeeds! ✓
+
+**Example scenario (multiple paths):**
+- First run discovers: `machine2 → machine3` and `machine2 → machine4` (with old credentials)
+- You add credential `test:test123` that only works on machine3
+- Second run from machine2:
+  - Tries `test:test123` to machine3 → succeeds! (new connection found)
+  - Tries `test:test123` to machine4 → fails
+  - Fallback: Re-uses previous connection machine2 → machine4 with old credentials
+  - Both paths are maintained, allowing continued scanning from both machine3 and machine4
 
 **Force retry all connections:**
 ```bash
