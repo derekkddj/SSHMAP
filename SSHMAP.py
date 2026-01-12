@@ -118,7 +118,8 @@ async def handle_target(
                         sshmap_logger.info(
                             f"[{target}:{port}] Get remote hostname and IPs"
                         )
-                        remote_hostname = await get_remote_hostname(ssh_conn)
+                        # Use the hostname that was already retrieved during connection
+                        remote_hostname = ssh_conn.get_remote_hostname()
                         remote_ips = await get_remote_ip(ssh_conn)
 
                         sshmap_logger.info(
