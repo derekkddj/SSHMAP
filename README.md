@@ -144,39 +144,44 @@ python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --p
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 # Only new credential combinations are tried - already-attempted connections are automatically skipped
 # Output: "[OPTIMIZATION] Skipping N already-attempted credentials for host:port from source"
-# After initial scan, automatically scans from all previously discovered jump hosts
-# Output: "[ADDITIONAL SCAN] Checking for new credentials from known jump hosts..."
+# If no new connections found, previous successful connections are automatically re-used
+# Output: "[FALLBACK] Re-using previous connection: source -> target"
 ```
 
-**How the additional scan works:**
+**How the fallback mechanism works:**
 When you add new credentials and run a second scan:
-1. **Initial scan**: Tries new credentials on directly reachable targets
-2. **Additional scan**: Automatically connects to all previously discovered jump hosts (using known credentials) and tries the new credentials from there
+1. **Initial scan**: Tries new credentials on all reachable targets
+2. **Automatic fallback**: If no new connections are found to a target, the system automatically:
+   - Queries the database for previous successful connections from the current host
+   - Re-establishes those connections using the previously successful credentials
+   - Returns them so scanning continues through previously discovered paths
 
 This ensures that:
-- If a new credential only works on a machine accessible through a jump host
-- And the new credential doesn't work on the jump host itself
-- The system will still find the connection by re-establishing the jump host session and trying from there
+- New credentials are tried at every level of the network
+- If new credentials don't work at one level, scanning continues through previously discovered paths
+- Works recursively at any depth (machine1 → machine2 → machine3 → machine4...)
 
 **Example scenario:**
-- First run discovers: `machine1 → machine2 → machine3` (with old credentials)
-- You add credential `test:test123` that only works on machine3
+- First run discovers: `machine1 → machine2 → machine3 → machine4` (with old credentials)
+- You add credential `test:test123` that only works on `machine3 → machine4`
 - Second run: 
   - Tries `test:test123` from machine1 to machine2 → fails
-  - Additional scan: Re-connects to machine2 using old credentials
-  - Tries `test:test123` from machine2 to machine3 → succeeds! ✓
+  - Fallback: Re-uses previous connection machine1 → machine2 with old credentials
+  - Tries `test:test123` from machine2 to machine3 → fails
+  - Fallback: Re-uses previous connection machine2 → machine3 with old credentials
+  - Tries `test:test123` from machine3 to machine4 → succeeds! ✓
 
 **Force retry all connections:**
 ```bash
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --force-rescan
 # Retries all connection attempts, including previously attempted ones
-# Skips the additional jump host scan (not needed when force-rescanning everything)
 ```
 
 **Connection attempt tracking:**
 - All attempts (successful and failed) are recorded in Neo4j as `SSH_ATTEMPT` edges
 - Successful connections create additional `SSH_ACCESS` edges (existing behavior)
 - Each `SSH_ATTEMPT` edge includes: user, method, credentials, success status, and timestamp
+- Previous successful connections are automatically re-used when no new connections are found
 - Use Neo4j browser to query attempt history: `MATCH ()-[r:SSH_ATTEMPT]->() RETURN r`
 
 ### View the graph in the Neo4J console:

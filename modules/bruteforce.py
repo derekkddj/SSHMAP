@@ -307,4 +307,54 @@ async def try_all(
         tasks = retry_tasks
         task_to_cred = new_task_to_cred
 
+    # If no new successful connections were found and we have graphdb access,
+    # retrieve and return previous successful connections so scanning can continue
+    if not results and graphdb and source_hostname and not force_rescan:
+        sshmap_logger.info(
+            f"[FALLBACK] No new connections found from {source_hostname} to {host}:{port}. "
+            f"Checking for previous successful connections from {source_hostname}."
+        )
+        previous_connections = graphdb.get_connections_from_host(source_hostname)
+        
+        # Find connections to the target host:port
+        for conn in previous_connections:
+            props = conn.get('props', {})
+            if props.get('ip') == host and props.get('port') == port:
+                sshmap_logger.info(
+                    f"[FALLBACK] Re-using previous connection: {source_hostname} -> {conn['to']} "
+                    f"({host}:{port}) with {props.get('user')}:{props.get('method')}"
+                )
+                
+                # Try to re-establish the connection using the previous credentials
+                try:
+                    # Create a credential object for the previous connection
+                    from .credential_store import Credential
+                    prev_cred = Credential(
+                        remote_ip=host,
+                        port=str(port),
+                        user=props.get('user'),
+                        secret=props.get('creds'),
+                        method=props.get('method')
+                    )
+                    
+                    # Try to reconnect with the previous credentials
+                    result = await try_single_credential(
+                        host,
+                        port,
+                        prev_cred,
+                        jumper=jumper,
+                        credential_store=credential_store,
+                        ssh_session_manager=ssh_session_manager,
+                    )
+                    
+                    if result:
+                        sshmap_logger.success(
+                            f"[FALLBACK] Successfully re-established connection: {source_hostname} -> {conn['to']}"
+                        )
+                        results.append(result)
+                except Exception as e:
+                    sshmap_logger.warning(
+                        f"[FALLBACK] Failed to re-establish connection to {host}:{port}: {e}"
+                    )
+
     return results
