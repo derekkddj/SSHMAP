@@ -47,6 +47,14 @@ options:
 - ⚡ Async scanning, fast as it can be
 - 🖥️ CLI with argparse
 - 🎯 Smart connection tracking - skips already-attempted connections for faster subsequent runs
+- 📊 Batched database writes for optimal performance with thousands of connection attempts
+
+## Performance Optimization
+
+For large-scale brute-force scans with thousands of connection attempts, SSHMAP now uses batched database writes to avoid bottlenecks:
+- **Automatic Batching**: Connection attempts are queued in memory and written to Neo4j in batches of 100
+- **Configurable Recording**: Set `record_connection_attempts: False` in config.yml to disable attempt tracking entirely for maximum speed
+- **No More Hangs**: The scan will complete even with tens of thousands of connection attempts
 
 ## Screenshots
 Attacking just one machine, and using it as a jump host:
@@ -88,6 +96,7 @@ max_depth: 1 #default max depth
 # Optional settings
 scan_timeout: 5        # Timeout for SSH connection attempts (in seconds)
 brute_new_credential: False # If True, every new credential will be saved as _bruteforce, so it will be used in next host regadless of the IP
+record_connection_attempts: True # If True, records all connection attempts (successful and failed) to Neo4j for tracking. Set to False for faster scans with thousands of attempts.
 ```
 
 ### Usage

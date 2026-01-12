@@ -50,49 +50,126 @@ class TestConnectionAttempts:
         )
         
         assert result is False
-
-    def test_record_connection_attempt_success(self, mock_graph):
-        """Test recording a successful connection attempt"""
-        mock_session = MagicMock()
-        mock_graph.driver.session.return_value.__enter__.return_value = mock_session
+    
+    def test_has_connection_been_attempted_checks_queue(self, mock_graph):
+        """Test that has_connection_been_attempted checks the in-memory queue"""
+        # Add an attempt to the queue
+        mock_graph._attempt_queue.append({
+            'from_hostname': 'host1',
+            'to_hostname': 'host2',
+            'to_ip': '192.168.1.1',
+            'port': 22,
+            'user': 'root',
+            'method': 'password',
+            'creds': 'secret123',
+            'success': True,
+            'time': 1234567890
+        })
         
-        mock_graph.record_connection_attempt(
+        # Should find it in the queue without querying the database
+        result = mock_graph.has_connection_been_attempted(
+            "host1", "192.168.1.1", 22, "root", "password", "secret123"
+        )
+        
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_record_connection_attempt_queues(self, mock_graph):
+        """Test that recording a connection attempt adds it to the queue"""
+        await mock_graph.record_connection_attempt(
             "host1", "host2", "192.168.1.1", 22, "root", "password", "secret123", True
         )
         
-        # Should call run twice: once to ensure host exists, once to record attempt
-        assert mock_session.run.call_count == 2
-        
-        # Check the second call (record attempt)
-        args, kwargs = mock_session.run.call_args
-        assert "SSH_ATTEMPT" in args[0]
-        assert kwargs['from_hostname'] == "host1"
-        assert kwargs['to_hostname'] == "host2"
-        assert kwargs['ip'] == "192.168.1.1"
-        assert kwargs['port'] == 22
-        assert kwargs['user'] == "root"
-        assert kwargs['method'] == "password"
-        assert kwargs['creds'] == "secret123"
-        assert kwargs['success'] is True
+        # Should have added to the queue
+        assert len(mock_graph._attempt_queue) == 1
+        attempt = mock_graph._attempt_queue[0]
+        assert attempt['from_hostname'] == "host1"
+        assert attempt['to_hostname'] == "host2"
+        assert attempt['to_ip'] == "192.168.1.1"
+        assert attempt['port'] == 22
+        assert attempt['user'] == "root"
+        assert attempt['method'] == "password"
+        assert attempt['creds'] == "secret123"
+        assert attempt['success'] is True
 
-    def test_record_connection_attempt_failure(self, mock_graph):
-        """Test recording a failed connection attempt (hostname unknown, using IP as fallback)"""
+    @pytest.mark.asyncio
+    async def test_record_connection_attempt_batching(self, mock_graph):
+        """Test that connection attempts are batched and flushed at batch_size"""
+        mock_session = MagicMock()
+        mock_graph.driver.session.return_value.__enter__.return_value = mock_session
+        mock_graph._batch_size = 3  # Set a small batch size for testing
+        
+        # Add attempts one by one
+        for i in range(2):
+            await mock_graph.record_connection_attempt(
+                "host1", "host2", f"192.168.1.{i}", 22, "root", "password", f"secret{i}", True
+            )
+        
+        # Should not have flushed yet
+        assert mock_session.run.call_count == 0
+        assert len(mock_graph._attempt_queue) == 2
+        
+        # Add one more to trigger the batch flush
+        await mock_graph.record_connection_attempt(
+            "host1", "host2", "192.168.1.3", 22, "root", "password", "secret3", True
+        )
+        
+        # Should have flushed now
+        assert mock_session.run.call_count == 2  # Once for hosts, once for attempts
+        assert len(mock_graph._attempt_queue) == 0
+
+    @pytest.mark.asyncio
+    async def test_flush_attempts(self, mock_graph):
+        """Test manual flushing of queued attempts"""
         mock_session = MagicMock()
         mock_graph.driver.session.return_value.__enter__.return_value = mock_session
         
-        # When hostname is unknown, IP is used as fallback for to_hostname
-        mock_graph.record_connection_attempt(
-            "host1", None, "192.168.1.1", 22, "admin", "keyfile", "/path/to/key", False
-        )
+        # Add some attempts to the queue manually
+        for i in range(5):
+            mock_graph._attempt_queue.append({
+                'from_hostname': 'host1',
+                'to_hostname': 'host2',
+                'to_ip': f'192.168.1.{i}',
+                'port': 22,
+                'user': 'root',
+                'method': 'password',
+                'creds': f'secret{i}',
+                'success': True,
+                'time': 1234567890 + i
+            })
         
-        # Should call run twice: once to ensure host exists, once to record attempt
-        assert mock_session.run.call_count == 2
+        # Flush manually
+        await mock_graph.flush_attempts()
         
-        # Check the second call
-        args, kwargs = mock_session.run.call_args
-        assert kwargs['success'] is False
-        # When to_hostname is None, IP is used as hostname
-        assert kwargs['to_hostname'] == "192.168.1.1"
+        # Should have cleared the queue and written to DB
+        assert len(mock_graph._attempt_queue) == 0
+        assert mock_session.run.call_count == 2  # Once for hosts, once for attempts
+
+    def test_close_flushes_remaining_attempts(self, mock_graph):
+        """Test that closing the graph flushes any remaining attempts"""
+        mock_session = MagicMock()
+        mock_graph.driver.session.return_value.__enter__.return_value = mock_session
+        
+        # Add some attempts to the queue
+        for i in range(3):
+            mock_graph._attempt_queue.append({
+                'from_hostname': 'host1',
+                'to_hostname': 'host2',
+                'to_ip': f'192.168.1.{i}',
+                'port': 22,
+                'user': 'root',
+                'method': 'password',
+                'creds': f'secret{i}',
+                'success': True,
+                'time': 1234567890 + i
+            })
+        
+        # Close should flush
+        mock_graph.close()
+        
+        # Should have flushed and closed
+        assert len(mock_graph._attempt_queue) == 0
+        assert mock_session.run.call_count == 2  # Once for hosts, once for attempts
 
     def test_get_all_attempted_connections(self, mock_graph):
         """Test retrieving all attempted connections from a host"""

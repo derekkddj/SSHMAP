@@ -213,7 +213,8 @@ async def try_all(
     credentials = credential_store.get_credentials_host_and_bruteforce(host, port)
     
     # Filter out already-attempted connections unless force_rescan is True
-    if not force_rescan and graphdb and source_hostname:
+    # Only do this filtering if connection attempt recording is enabled
+    if not force_rescan and graphdb and source_hostname and CONFIG.get("record_connection_attempts", True):
         original_count = len(credentials)
         filtered_credentials = []
         for cred in credentials:
@@ -249,11 +250,11 @@ async def try_all(
                 ssh_session_manager=ssh_session_manager,
             )
             
-            # Record the attempt in the database
-            if graphdb and source_hostname:
+            # Record the attempt in the database (if enabled in config)
+            if graphdb and source_hostname and CONFIG.get("record_connection_attempts", True):
                 # Get the target hostname if the connection succeeded
                 to_hostname = result.ssh_session.get_remote_hostname() if result and result.ssh_session else None
-                graphdb.record_connection_attempt(
+                await graphdb.record_connection_attempt(
                     source_hostname,
                     to_hostname if to_hostname else host,
                     host,
@@ -397,5 +398,9 @@ async def try_all(
                 sshmap_logger.warning(
                     f"[FALLBACK] Failed to re-establish connection to {host}:{port}: {e}"
                 )
+
+    # Flush any remaining connection attempts to the database
+    if graphdb and CONFIG.get("record_connection_attempts", True):
+        await graphdb.flush_attempts()
 
     return results
