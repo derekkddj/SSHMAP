@@ -15,13 +15,15 @@ class Result:
         method (str): The method used for the attempt (password or keyfile).
         ssh_session (SSHSession): The SSH session object if the attempt was successful. Can have a jump_session.
         creds (str): The credentials used for the attempt.
+        is_fallback (bool): True if this connection was re-established from a previous scan (not a new discovery).
     """
 
-    def __init__(self, user, method, ssh_session, creds):
+    def __init__(self, user, method, ssh_session, creds, is_fallback=False):
         self.user = user
         self.method = method
         self.ssh_session = ssh_session
         self.creds = creds
+        self.is_fallback = is_fallback
 
     def get_ssh_connection(self):
         return self.ssh_session
@@ -392,6 +394,8 @@ async def try_all(
                     sshmap_logger.success(
                         f"[FALLBACK] Successfully re-established connection: {source_hostname} -> {conn['to']}"
                     )
+                    # Mark this as a fallback connection so it doesn't trigger re-scanning
+                    result.is_fallback = True
                     results.append(result)
             except Exception as e:
                 sshmap_logger.warning(
