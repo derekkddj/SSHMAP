@@ -15,7 +15,7 @@ class GraphDB:
         self._attempt_queue = deque()
         self._batch_size = 100  # Write to DB every 100 attempts
         self._flush_task = None
-        self._lock = asyncio.Lock()
+        self._lock = None  # Initialize lazily when needed
 
     def close(self):
         # Flush any remaining attempts before closing
@@ -74,6 +74,10 @@ class GraphDB:
     
     async def flush_attempts(self):
         """Asynchronously flush all queued attempts to the database"""
+        # Initialize lock lazily if needed
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+            
         async with self._lock:
             if not self._attempt_queue:
                 return
@@ -516,6 +520,10 @@ class GraphDB:
         """
         currentmilis = round(time.time() * 1000)
         
+        # Initialize lock lazily if needed
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        
         # Add to queue
         async with self._lock:
             self._attempt_queue.append({
@@ -532,7 +540,12 @@ class GraphDB:
             
             # If we've reached the batch size, flush to database
             if len(self._attempt_queue) >= self._batch_size:
-                await self.flush_attempts()
+                # Release lock before flushing to avoid deadlock
+                pass
+        
+        # Check outside the lock to avoid recursive locking
+        if len(self._attempt_queue) >= self._batch_size:
+            await self.flush_attempts()
 
     def get_all_attempted_connections(self, from_hostname):
         """
