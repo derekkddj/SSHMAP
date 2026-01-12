@@ -61,20 +61,34 @@ async def get_remote_hostname(ssh_client):
     sshmap_logger.debug("Getting remote hostname...")
     try:
         hostname, err = await ssh_client.exec_command_with_stderr("hostname")
-        hostname = (
-            hostname.strip()
-            if hostname  # if not err?
-            else ssh_client.connection.get_extra_info("peername")[0]
-        )
+        # Strip whitespace and validate hostname
+        if hostname and hostname.strip():
+            hostname = hostname.strip()
+            sshmap_logger.debug(f"Successfully retrieved hostname: {hostname}")
+            return hostname
+        else:
+            # hostname command returned empty - log warning but don't fall back to IP
+            sshmap_logger.warning(
+                f"Hostname command returned empty for {ssh_client.host}, stderr: {err}"
+            )
+            # Still try to return a valid hostname, use IP only as absolute last resort
+            # For now, use IP but this indicates a problem
+            hostname = ssh_client.host
+            sshmap_logger.warning(f"Using IP address as hostname: {hostname}")
+            return hostname
     except AttributeError as e:
         sshmap_logger.error(f"Failed to get attribute: {e}")
+        # This is a serious error - connection object not properly initialized
         hostname = ssh_client.host
+        sshmap_logger.error(f"Using IP address as hostname due to AttributeError: {hostname}")
+        return hostname
     except Exception as e:
         sshmap_logger.error(
             f"Failed to get hostname for {ssh_client.host}: {type(e).__name__} - {e}"
         )
         hostname = ssh_client.host
-    return hostname
+        sshmap_logger.error(f"Using IP address as hostname due to exception: {hostname}")
+        return hostname
 
 
 # ssh_client is an instance of SSHSession

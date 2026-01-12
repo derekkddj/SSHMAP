@@ -1,5 +1,6 @@
 from .SSHSession import SSHSession
 from .logger import sshmap_logger
+from .credential_store import Credential
 import asyncio
 from .config import CONFIG
 import random
@@ -164,6 +165,9 @@ async def try_all(
     credential_store=None,
     ssh_session_manager=None,
     max_retries=3,
+    graphdb=None,
+    source_hostname=None,
+    force_rescan=False,
 ):
     """Try all combinations of users, passwords, and keyfiles against a target host.
 
@@ -175,6 +179,9 @@ async def try_all(
         keyfiles (list): List of keyfiles for authentication.
         maxworkers (int, optional): Maximum number of workers for concurrent attempts. Defaults to 25.
         max_retries (int, optional): Maximum number of retries for transient failures. Defaults to 3.
+        graphdb (GraphDB, optional): Graph database to track connection attempts.
+        source_hostname (str, optional): Source hostname for tracking attempts.
+        force_rescan (bool, optional): Force retry of already-attempted connections.
 
     Returns:
         list: List of Result objects for successful authentication attempts.
@@ -184,8 +191,42 @@ async def try_all(
     )
     results = []
     semaphore = asyncio.Semaphore(maxworkers)
+    
+    # Get previous successful connections from source_hostname to this target (host:port)
+    # Store as dictionary keyed by (ip, port, to_hostname) for tracking
+    old_connections = {}
+    if graphdb and source_hostname and not force_rescan:
+        previous_connections = graphdb.get_connections_from_host(source_hostname)
+        for conn in previous_connections:
+            props = conn.get('props', {})
+            if props.get('ip') == host and props.get('port') == port:
+                # Key by unique identifier for this connection
+                key = (host, port, conn['to'])
+                old_connections[key] = conn
+        
+        if old_connections:
+            sshmap_logger.info(
+                f"[FALLBACK] Found {len(old_connections)} previous successful connection(s) from {source_hostname} to {host}:{port}"
+            )
+    
     # Schedule all credential attempts as async tasks
     credentials = credential_store.get_credentials_host_and_bruteforce(host, port)
+    
+    # Filter out already-attempted connections unless force_rescan is True
+    if not force_rescan and graphdb and source_hostname:
+        original_count = len(credentials)
+        filtered_credentials = []
+        for cred in credentials:
+            if not graphdb.has_connection_been_attempted(
+                source_hostname, host, port, cred.user, cred.method, cred.secret
+            ):
+                filtered_credentials.append(cred)
+        credentials = filtered_credentials
+        skipped_count = original_count - len(credentials)
+        if skipped_count > 0:
+            sshmap_logger.info(
+                f"[OPTIMIZATION] Skipping {skipped_count} already-attempted credentials for {host}:{port} from {source_hostname}"
+            )
     
     # Track retry counts per credential
     retry_counts = {}
@@ -199,7 +240,7 @@ async def try_all(
                 )
                 await asyncio.sleep(0.5 * retry_attempt)  # Exponential backoff
             
-            return await try_single_credential(
+            result = await try_single_credential(
                 host,
                 port,
                 credential,
@@ -207,6 +248,23 @@ async def try_all(
                 credential_store=credential_store,
                 ssh_session_manager=ssh_session_manager,
             )
+            
+            # Record the attempt in the database
+            if graphdb and source_hostname:
+                # Get the target hostname if the connection succeeded
+                to_hostname = result.ssh_session.get_remote_hostname() if result and result.ssh_session else None
+                graphdb.record_connection_attempt(
+                    source_hostname,
+                    to_hostname if to_hostname else host,
+                    host,
+                    port,
+                    credential.user,
+                    credential.method,
+                    credential.secret,
+                    success=result is not None,
+                )
+            
+            return result
 
     # Launch all credential attempts
     random.shuffle(credentials)  # Shuffle in-place
@@ -263,9 +321,81 @@ async def try_all(
                     f"[RESULT] Success: {result.method}:{result.user}@{host}:{port}"
                 )
                 results.append(result)
+                
+                # If this connection was in old_connections, remove it since we successfully reconnected
+                if result.ssh_session:
+                    try:
+                        remote_hostname = result.ssh_session.get_remote_hostname()
+                        if remote_hostname:
+                            key = (host, port, remote_hostname)
+                            if key in old_connections:
+                                sshmap_logger.debug(
+                                    f"[FALLBACK] New connection replaces old connection to {remote_hostname}"
+                                )
+                                del old_connections[key]
+                    except Exception as e:
+                        sshmap_logger.debug(
+                            f"[FALLBACK] Could not determine remote hostname for connection: {e}"
+                        )
         
         # Update tasks and mapping for next iteration
         tasks = retry_tasks
         task_to_cred = new_task_to_cred
+
+    # At the end, re-establish any old connections that weren't found with new credentials
+    # This allows scanning to continue through all previously discovered paths
+    if old_connections and not force_rescan:
+        sshmap_logger.info(
+            f"[FALLBACK] Re-establishing {len(old_connections)} previous connection(s) not found with new credentials"
+        )
+        for key, conn in old_connections.items():
+            props = conn.get('props', {})
+            
+            # Validate that we have all required properties
+            user = props.get('user')
+            creds = props.get('creds')
+            method = props.get('method')
+            
+            if not all([user, creds, method]):
+                sshmap_logger.warning(
+                    f"[FALLBACK] Skipping connection to {conn.get('to', 'unknown')} - missing required properties (user, creds, or method)"
+                )
+                continue
+            
+            sshmap_logger.info(
+                f"[FALLBACK] Re-using previous connection: {source_hostname} -> {conn['to']} "
+                f"({host}:{port}) with {user}:{method}"
+            )
+            
+            # Try to re-establish the connection using the previous credentials
+            try:
+                # Create a credential object for the previous connection
+                prev_cred = Credential(
+                    remote_ip=host,
+                    port=str(port),
+                    user=user,
+                    secret=creds,
+                    method=method
+                )
+                
+                # Try to reconnect with the previous credentials
+                result = await try_single_credential(
+                    host,
+                    port,
+                    prev_cred,
+                    jumper=jumper,
+                    credential_store=credential_store,
+                    ssh_session_manager=ssh_session_manager,
+                )
+                
+                if result:
+                    sshmap_logger.success(
+                        f"[FALLBACK] Successfully re-established connection: {source_hostname} -> {conn['to']}"
+                    )
+                    results.append(result)
+            except Exception as e:
+                sshmap_logger.warning(
+                    f"[FALLBACK] Failed to re-establish connection to {host}:{port}: {e}"
+                )
 
     return results

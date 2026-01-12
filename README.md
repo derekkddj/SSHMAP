@@ -46,6 +46,7 @@ options:
 - 🧩 Modular architecture
 - ⚡ Async scanning, fast as it can be
 - 🖥️ CLI with argparse
+- 🎯 Smart connection tracking - skips already-attempted connections for faster subsequent runs
 
 ## Screenshots
 Attacking just one machine, and using it as a jump host:
@@ -120,6 +121,77 @@ Then run the program from your starting host.
 ```bash
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 ```
+
+#### Smart Connection Tracking
+
+SSHMAP now tracks all connection attempts in Neo4j and automatically skips already-attempted connections, significantly reducing scan time on subsequent runs.
+
+**How it works:**
+- Tracks each connection attempt: `from_host → to_host` with specific credentials (user, method, password/key)
+- New credentials are automatically tried from **all known hosts** to **all targets**
+- If you can connect from host A to host B, SSHMAP will also try connecting from host C to host B
+- Each unique combination is only attempted once (unless `--force-rescan` is used)
+
+**First run:**
+```bash
+python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+# All connection attempts are made and recorded in Neo4j
+```
+
+**Subsequent runs with new credentials:**
+```bash
+# Add new credentials to your wordlists
+python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+# Only new credential combinations are tried - already-attempted connections are automatically skipped
+# Output: "[OPTIMIZATION] Skipping N already-attempted credentials for host:port from source"
+# If no new connections found, previous successful connections are automatically re-used
+# Output: "[FALLBACK] Re-using previous connection: source -> target"
+```
+
+**How the fallback mechanism works:**
+When you add new credentials and run a second scan:
+1. **Load previous connections**: At the start of bruteforce, loads all previous successful connections from the current host to the target
+2. **Try new credentials**: Attempts all new credentials on the target
+3. **Track successful reconnections**: When a new connection succeeds to a target that had a previous connection, marks that old connection as replaced
+4. **Re-establish remaining connections**: After trying all new credentials, re-establishes any previous connections that weren't replaced
+
+This ensures that:
+- New credentials are tried at every level of the network
+- **All** previously discovered paths are maintained, not just one
+- If a host has connections to multiple targets, and only some connections are re-established with new credentials, the others are still maintained
+- Works recursively at any depth (machine1 → machine2 → machine3 → machine4...)
+
+**Example scenario (single path):**
+- First run discovers: `machine1 → machine2 → machine3 → machine4` (with old credentials)
+- You add credential `test:test123` that only works on `machine3 → machine4`
+- Second run: 
+  - Tries `test:test123` from machine1 to machine2 → fails
+  - Fallback: Re-uses previous connection machine1 → machine2 with old credentials
+  - Tries `test:test123` from machine2 to machine3 → fails
+  - Fallback: Re-uses previous connection machine2 → machine3 with old credentials
+  - Tries `test:test123` from machine3 to machine4 → succeeds! ✓
+
+**Example scenario (multiple paths):**
+- First run discovers: `machine2 → machine3` and `machine2 → machine4` (with old credentials)
+- You add credential `test:test123` that only works on machine3
+- Second run from machine2:
+  - Tries `test:test123` to machine3 → succeeds! (new connection found)
+  - Tries `test:test123` to machine4 → fails
+  - Fallback: Re-uses previous connection machine2 → machine4 with old credentials
+  - Both paths are maintained, allowing continued scanning from both machine3 and machine4
+
+**Force retry all connections:**
+```bash
+python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --force-rescan
+# Retries all connection attempts, including previously attempted ones
+```
+
+**Connection attempt tracking:**
+- All attempts (successful and failed) are recorded in Neo4j as `SSH_ATTEMPT` edges
+- Successful connections create additional `SSH_ACCESS` edges (existing behavior)
+- Each `SSH_ATTEMPT` edge includes: user, method, credentials, success status, and timestamp
+- Previous successful connections are automatically re-used when no new connections are found
+- Use Neo4j browser to query attempt history: `MATCH ()-[r:SSH_ATTEMPT]->() RETURN r`
 
 ### View the graph in the Neo4J console:
 
