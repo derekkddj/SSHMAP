@@ -2,6 +2,8 @@ from neo4j import GraphDatabase
 from ipaddress import ip_network
 import os
 import time
+import asyncio
+from collections import deque
 
 
 # graphdb.py
@@ -10,9 +12,75 @@ import time
 class GraphDB:
     def __init__(self, uri, user, password):
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        self._attempt_queue = deque()
+        self._batch_size = 100  # Write to DB every 100 attempts
+        self._flush_task = None
+        self._lock = asyncio.Lock()
 
     def close(self):
+        # Flush any remaining attempts before closing
+        if self._attempt_queue:
+            self._flush_attempts_sync()
         self.driver.close()
+    
+    def _flush_attempts_sync(self):
+        """Synchronously flush all queued attempts to the database"""
+        if not self._attempt_queue:
+            return
+        
+        attempts_to_write = list(self._attempt_queue)
+        self._attempt_queue.clear()
+        
+        with self.driver.session() as session:
+            # Batch create all target hosts first
+            unique_hosts = set()
+            for attempt in attempts_to_write:
+                to_hostname = attempt['to_hostname'] if attempt['to_hostname'] else attempt['to_ip']
+                unique_hosts.add(to_hostname)
+            
+            if unique_hosts:
+                session.run(
+                    """
+                    UNWIND $hostnames AS hostname
+                    MERGE (dst:Host {hostname: hostname})
+                    """,
+                    hostnames=list(unique_hosts)
+                )
+            
+            # Batch record all attempts
+            session.run(
+                """
+                UNWIND $attempts AS attempt
+                MATCH (src:Host {hostname: attempt.from_hostname})
+                MATCH (dst:Host {hostname: attempt.to_hostname})
+                MERGE (src)-[r:SSH_ATTEMPT {ip: attempt.ip, port: attempt.port, user: attempt.user, method: attempt.method, creds: attempt.creds}]->(dst)
+                SET r.last_attempt = attempt.time, r.success = attempt.success
+                """,
+                attempts=[
+                    {
+                        'from_hostname': a['from_hostname'],
+                        'to_hostname': a['to_hostname'] if a['to_hostname'] else a['to_ip'],
+                        'ip': a['to_ip'],
+                        'port': a['port'],
+                        'user': a['user'],
+                        'method': a['method'],
+                        'creds': a['creds'],
+                        'time': a['time'],
+                        'success': a['success']
+                    }
+                    for a in attempts_to_write
+                ]
+            )
+    
+    async def flush_attempts(self):
+        """Asynchronously flush all queued attempts to the database"""
+        async with self._lock:
+            if not self._attempt_queue:
+                return
+            
+            # Run the synchronous flush in a thread pool
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._flush_attempts_sync)
 
     def write_ssh_config_for_path(
         self, start, end, method="proxyjump", config_path="/tmp/sshmap_config"
@@ -393,6 +461,7 @@ class GraphDB:
     def has_connection_been_attempted(self, from_hostname, to_ip, port, user, method, creds):
         """
         Check if a specific connection attempt has already been tried.
+        Also checks the in-memory queue before querying the database.
         
         :param from_hostname: Source hostname
         :param to_ip: Target IP address
@@ -402,6 +471,17 @@ class GraphDB:
         :param creds: Credentials (password or key path)
         :return: True if attempt was already made, False otherwise
         """
+        # Check the in-memory queue first
+        for attempt in self._attempt_queue:
+            if (attempt['from_hostname'] == from_hostname and
+                attempt['to_ip'] == to_ip and
+                attempt['port'] == port and
+                attempt['user'] == user and
+                attempt['method'] == method and
+                attempt['creds'] == creds):
+                return True
+        
+        # Then check the database
         with self.driver.session() as session:
             result = session.run(
                 """
@@ -420,9 +500,10 @@ class GraphDB:
             )
             return result.single() is not None
 
-    def record_connection_attempt(self, from_hostname, to_hostname, to_ip, port, user, method, creds, success):
+    async def record_connection_attempt(self, from_hostname, to_hostname, to_ip, port, user, method, creds, success):
         """
         Record a connection attempt (successful or failed).
+        Uses batching to avoid database bottlenecks with many attempts.
         
         :param from_hostname: Source hostname
         :param to_hostname: Target hostname (if known)
@@ -434,33 +515,24 @@ class GraphDB:
         :param success: Whether the attempt was successful
         """
         currentmilis = round(time.time() * 1000)
-        with self.driver.session() as session:
-            # Ensure target host exists (even if we don't have a hostname yet)
-            session.run(
-                """
-                MERGE (dst:Host {hostname: $to_hostname})
-                """,
-                to_hostname=to_hostname if to_hostname else to_ip,
-            )
+        
+        # Add to queue
+        async with self._lock:
+            self._attempt_queue.append({
+                'from_hostname': from_hostname,
+                'to_hostname': to_hostname,
+                'to_ip': to_ip,
+                'port': port,
+                'user': user,
+                'method': method,
+                'creds': creds,
+                'success': success,
+                'time': currentmilis
+            })
             
-            # Record the attempt
-            session.run(
-                """
-                MATCH (src:Host {hostname: $from_hostname})
-                MATCH (dst:Host {hostname: $to_hostname})
-                MERGE (src)-[r:SSH_ATTEMPT {ip: $ip, port: $port, user: $user, method: $method, creds: $creds}]->(dst)
-                SET r.last_attempt = $time, r.success = $success
-                """,
-                from_hostname=from_hostname,
-                to_hostname=to_hostname if to_hostname else to_ip,
-                ip=to_ip,
-                port=port,
-                user=user,
-                method=method,
-                creds=creds,
-                time=currentmilis,
-                success=success,
-            )
+            # If we've reached the batch size, flush to database
+            if len(self._attempt_queue) >= self._batch_size:
+                await self.flush_attempts()
 
     def get_all_attempted_connections(self, from_hostname):
         """

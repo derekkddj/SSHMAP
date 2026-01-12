@@ -26,6 +26,7 @@ class Config:
                 "max_depth": 1,
                 "scan_timeout": 10,
                 "brute_new_credentials": False,
+                "record_connection_attempts": True,
             }
             with open(path, "w") as f:
                 yaml.dump(self._config, f)
