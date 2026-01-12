@@ -147,12 +147,10 @@ async def handle_target(
                         # keys_found = key_scanner.find_keys(ssh_conn)
                         # logger.info(f"[{target}] Keys found: {keys_found}")
                         # I need to create new jobs only if i have not used this jump before
-                        # Skip creating new jobs for fallback connections (they were already scanned in a previous run)
                         if (
                             remote_hostname not in visited_attempts
                             and current_depth < max_depth
                             and remote_hostname != start_host
-                            and not getattr(res, 'is_fallback', False)  # Don't re-scan fallback connections
                         ):
                             sshmap_logger.display(
                                 f"[depth:{current_depth}] New jumphost found: {remote_hostname}, starting recursive scan"
