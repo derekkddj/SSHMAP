@@ -168,7 +168,8 @@ async def handle_target(
                             
                             # In force_targets_mode, use the force_targets_ips instead of discovering from remote host
                             if force_targets_mode and force_targets_ips:
-                                new_targets = list(force_targets_ips)
+                                # Use same targets for recursive scan, remove duplicates for consistency
+                                new_targets = list(set(force_targets_ips))
                             else:
                                 new_targets = []
                                 for remote_ip_cidr in remote_ips:
