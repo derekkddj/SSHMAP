@@ -59,6 +59,24 @@ End of the scan:
 ![image](docs/media/scan_end.png)
 ## Setup
 
+### Install with pipx (recommended)
+You can install SSHMAP system-wide using pipx. This will create the `sshmap` command and isolate dependencies.
+
+From GitHub:
+```bash
+pipx install git+https://github.com/derekkddj/SSHMAP.git
+```
+
+From a local clone (inside the repo folder):
+```bash
+pipx install .
+```
+
+Verify and see options:
+```bash
+sshmap --help
+```
+
 ### Install Requirements
 ```bash
 pip install -r requirements.txt
