@@ -80,6 +80,7 @@ async def handle_target(
     ssh_session_manager=None,
     max_retries=3,
     force_rescan=False,
+    force_targets_mode=False,
 ):
     try:
         if current_depth > max_depth:
@@ -154,8 +155,10 @@ async def handle_target(
                         # keys_found = key_scanner.find_keys(ssh_conn)
                         # logger.info(f"[{target}] Keys found: {keys_found}")
                         # I need to create new jobs only if i have not used this jump before
+                        # Skip recursive scanning if force_targets_mode is enabled
                         if (
-                            remote_hostname not in visited_attempts
+                            not force_targets_mode
+                            and remote_hostname not in visited_attempts
                             and current_depth < max_depth
                             and remote_hostname != start_host
                         ):
@@ -223,7 +226,7 @@ async def handle_target(
         raise
 
 
-async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, whitelist_ips):
+async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, whitelist_ips, force_targets_mode=False):
     while True:
         try:
             target, depth, jumper = await queue.get()
@@ -238,6 +241,7 @@ async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, 
                     queue=queue,
                     blacklist_ips=blacklist_ips,
                     whitelist_ips=whitelist_ips,
+                    force_targets_mode=force_targets_mode,
                 )
 
         except asyncio.CancelledError:
@@ -266,16 +270,29 @@ async def async_main(args):
 
     graph.add_host(start_host, start_ips)
 
-    blacklist_ips = read_targets(args.blacklist) if args.blacklist else []
-    whitelist_ips = read_targets(args.whitelist) if args.whitelist else None
+    # Initialize filtering variables
+    blacklist_ips = []
+    whitelist_ips = None
     
-    # filter targets based on whitelist and blacklist
-    if whitelist_ips:
-        # if whitelist is provided, only scan IPs in the whitelist
-        new_targets = [ip for ip in targets if ip in whitelist_ips and ip not in blacklist_ips]
+    # Handle force-targets mode: only scan exact IPs specified, no filtering, no recursion
+    force_targets_mode = False
+    if args.force_targets:
+        force_targets_mode = True
+        new_targets = read_targets(args.force_targets)
+        sshmap_logger.display(
+            f"Force targets mode enabled - scanning only {len(new_targets)} specified targets, no recursive discovery"
+        )
     else:
-        # otherwise, just remove blacklisted IPs
-        new_targets = [ip for ip in targets if ip not in blacklist_ips]
+        blacklist_ips = read_targets(args.blacklist) if args.blacklist else []
+        whitelist_ips = read_targets(args.whitelist) if args.whitelist else None
+        
+        # filter targets based on whitelist and blacklist
+        if whitelist_ips:
+            # if whitelist is provided, only scan IPs in the whitelist
+            new_targets = [ip for ip in targets if ip in whitelist_ips and ip not in blacklist_ips]
+        else:
+            # otherwise, just remove blacklisted IPs
+            new_targets = [ip for ip in targets if ip not in blacklist_ips]
     
     if args.force_rescan:
         sshmap_logger.display("Force rescan enabled - retrying all connection attempts including previously attempted ones.")
@@ -362,13 +379,14 @@ async def async_main(args):
                             depth,
                             jumper,
                             queue,
-                            blacklist_ips,
-                            whitelist_ips,
+                            blacklist_ips if not force_targets_mode else [],
+                            whitelist_ips if not force_targets_mode else None,
                             progress,
                             task_ids,
                             ssh_session_manager,
                             args.max_retries,
                             args.force_rescan,
+                            force_targets_mode,
                         )
 
                     if current_jump in task_ids:
@@ -444,6 +462,9 @@ def main():
     )
     parser.add_argument(
         "--whitelist", required=False, help="Path to the file with IPs or CIDRs that are the only IPs that can be scanned"
+    )
+    parser.add_argument(
+        "--force-targets", required=False, help="Path to the file with IPs or CIDRs that are the ONLY targets to scan (no whitelist, blacklist, or recursive scanning)"
     )
     parser.add_argument(
         "--users",
