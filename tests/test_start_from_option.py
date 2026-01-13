@@ -11,90 +11,6 @@ from modules.SSHSession import SSHSession
 class TestStartFromOption:
     """Tests for the --start-from option"""
 
-    @pytest.mark.asyncio
-    async def test_start_from_remote_host_success(self):
-        """Test that starting from a remote host works correctly"""
-        # Mock the async_main function's dependencies
-        with patch('SSHMAP.graph') as mock_graph, \
-             patch('SSHMAP.read_targets') as mock_read_targets, \
-             patch('SSHMAP.get_local_info') as mock_get_local_info, \
-             patch('SSHMAP.CredentialStore') as mock_credential_store_class, \
-             patch('SSHMAP.SSHSessionManager') as mock_ssh_session_manager_class, \
-             patch('SSHMAP.setup_debug_logging'), \
-             patch('builtins.open', create=True) as mock_open, \
-             patch('os.path.join', return_value='/tmp/fake_key'), \
-             patch('os.listdir', return_value=[]):
-
-            # Setup mocks
-            mock_get_local_info.return_value = ('local_host', [{'ip': '192.168.1.1', 'mask': 24}])
-            mock_read_targets.return_value = ['192.168.1.100']
-            
-            # Mock file operations
-            mock_file = MagicMock()
-            mock_file.__enter__.return_value = mock_file
-            mock_file.__iter__.return_value = iter(['testuser\n'])
-            mock_open.return_value = mock_file
-
-            # Mock graph database
-            mock_graph.get_host.return_value = {
-                'hostname': 'remote_host',
-                'interfaces': ['172.19.0.2/24']
-            }
-            mock_graph.add_host = MagicMock()
-
-            # Mock credential store
-            mock_cred_store = MagicMock()
-            mock_cred_store.store = AsyncMock()
-            mock_credential_store_class.return_value = mock_cred_store
-
-            # Mock SSH session manager and session
-            mock_session = MagicMock(spec=SSHSession)
-            mock_session.get_remote_hostname.return_value = 'remote_host'
-            
-            mock_session_manager = MagicMock()
-            mock_session_manager.get_session = AsyncMock(return_value=mock_session)
-            mock_session_manager.close_all = AsyncMock()
-            mock_ssh_session_manager_class.return_value = mock_session_manager
-
-            # Create args with start_from
-            args = Namespace(
-                credentialspath='/tmp/creds.csv',
-                targets='/tmp/targets.txt',
-                blacklist=None,
-                users='/tmp/users.txt',
-                passwords='/tmp/passwords.txt',
-                keys='/tmp/keys/',
-                maxworkers=10,
-                maxworkers_ssh=5,
-                max_retries=3,
-                maxdepth=5,
-                force_rescan=False,
-                debug=False,
-                verbose=False,
-                log=False,
-                log_file='test.log',
-                start_from='remote_host'
-            )
-
-            # Import and test the async_main function
-            # We can't easily test the full async_main because it uses Live context managers
-            # Instead, we'll verify that the mocks were called correctly
-            
-            # Verify the get_host call would be made
-            result = mock_graph.get_host('remote_host')
-            assert result is not None
-            assert result['hostname'] == 'remote_host'
-
-    @pytest.mark.asyncio
-    async def test_start_from_host_not_found(self):
-        """Test that an error is raised when the remote host is not found"""
-        with patch('SSHMAP.graph') as mock_graph:
-            mock_graph.get_host.return_value = None
-            
-            # Verify that get_host returns None for non-existent host
-            result = mock_graph.get_host('nonexistent_host')
-            assert result is None
-
     def test_start_from_argument_in_parser(self):
         """Test that --start-from argument is properly defined in the parser"""
         # We can test this by checking the SSHMAP.py main() function
@@ -107,3 +23,51 @@ class TestStartFromOption:
         )
         assert '--start-from' in result.stdout
         assert 'Start scanning from a specific remote hostname' in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_ssh_session_manager_get_session(self):
+        """Test SSHSessionManager.get_session for establishing connection to remote host"""
+        # Create mock graph database with a path
+        mock_graph = MagicMock(spec=GraphDB)
+        mock_graph.find_path.return_value = [
+            ('local_host', {
+                'user': 'root',
+                'method': 'password',
+                'creds': 'password123',
+                'ip': '172.19.0.2',
+                'port': 22
+            }, 'remote_host')
+        ]
+        
+        # Create mock credential store
+        mock_cred_store = MagicMock(spec=CredentialStore)
+        mock_cred_store.get_key_objects.return_value = None
+        
+        # Create SSHSessionManager
+        session_manager = SSHSessionManager(mock_graph, mock_cred_store)
+        
+        # Mock the SSHSession class to avoid actual SSH connections
+        with patch('modules.SSHSessionManager.SSHSession') as mock_ssh_session_class:
+            mock_session = MagicMock()
+            mock_session.connect = AsyncMock()
+            mock_session.is_connected.return_value = True
+            mock_ssh_session_class.return_value = mock_session
+            
+            # Test getting a session
+            session = await session_manager.get_session('remote_host', 'local_host')
+            
+            # Verify the session was created
+            assert session is not None
+            assert mock_ssh_session_class.called
+            assert mock_session.connect.called
+    
+    def test_graph_get_host_method_exists(self):
+        """Test that GraphDB has the get_host method needed for --start-from"""
+        from modules.graphdb import GraphDB
+        # Verify the method exists
+        assert hasattr(GraphDB, 'get_host')
+        # Get the method signature
+        import inspect
+        sig = inspect.signature(GraphDB.get_host)
+        # Verify it takes a hostname parameter
+        assert 'hostname' in sig.parameters

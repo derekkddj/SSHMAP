@@ -48,6 +48,7 @@ options:
 - 🖥️ CLI with argparse
 - 🎯 Smart connection tracking - skips already-attempted connections for faster subsequent runs
 - 📊 Batched database writes for optimal performance with thousands of connection attempts
+- 🔄 Start scanning from any discovered remote host with `--start-from` option
 
 ## Performance Optimization
 
@@ -130,6 +131,36 @@ Then run the program from your starting host.
 ```bash
 python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 ```
+
+#### Starting from a Remote Host
+
+SSHMAP supports starting the scan from any previously discovered remote host using the `--start-from` option. This is useful when you want to continue scanning from a specific machine in your network map.
+
+**How it works:**
+- Looks up the specified hostname in the Neo4j graph database
+- Uses `SSHSessionManager` to establish an SSH connection to that remote host
+- Starts scanning targets from that remote host instead of your local machine
+
+**Example usage:**
+```bash
+# First, run an initial scan to discover some hosts
+python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+
+# Later, start scanning from a discovered remote host
+python SSHMAP.py --targets wordlists/new_targets.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --start-from machine2_useasjumphost
+
+# The scan will now originate from machine2_useasjumphost instead of your local machine
+```
+
+**Use cases:**
+- **Pivot scanning**: Start scanning from a compromised host that has access to a different network segment
+- **Distributed scanning**: Continue scanning from various points in your network map
+- **Targeted scanning**: Focus on discovering hosts reachable from a specific machine
+
+**Requirements:**
+- The remote host must already exist in the graph database (discovered in a previous scan)
+- There must be a valid path from your local machine to the remote host
+- Valid credentials must be available to connect to the remote host
 
 #### Smart Connection Tracking
 
