@@ -1,6 +1,7 @@
 from .SSHSession import SSHSession
 from .logger import sshmap_logger
 from .credential_store import Credential
+from .attempt_store import AttemptStore
 import asyncio
 from .config import CONFIG
 import random
@@ -166,6 +167,7 @@ async def try_all(
     ssh_session_manager=None,
     max_retries=3,
     graphdb=None,
+    attempt_store=None,
     source_hostname=None,
     force_rescan=False,
 ):
@@ -196,7 +198,14 @@ async def try_all(
     # Store as dictionary keyed by (ip, port, to_hostname) for tracking
     old_connections = {}
     if graphdb and source_hostname and not force_rescan:
-        previous_connections = graphdb.get_connections_from_host(source_hostname)
+        try:
+            previous_connections = graphdb.get_connections_from_host(source_hostname) or []
+        except Exception as e:
+            sshmap_logger.warning(
+                f"[DB_ERROR] Failed to get connections from {source_hostname}: {type(e).__name__}: {e}. Continuing without fallback connections."
+            )
+            previous_connections = []
+        
         for conn in previous_connections:
             props = conn.get('props', {})
             if props.get('ip') == host and props.get('port') == port:
@@ -208,27 +217,38 @@ async def try_all(
             sshmap_logger.info(
                 f"[FALLBACK] Found {len(old_connections)} previous successful connection(s) from {source_hostname} to {host}:{port}"
             )
-    
     # Schedule all credential attempts as async tasks
     credentials = credential_store.get_credentials_host_and_bruteforce(host, port)
     
     # Filter out already-attempted connections unless force_rescan is True
     # Only do this filtering if connection attempt recording is enabled
-    if not force_rescan and graphdb and source_hostname and CONFIG.get("record_connection_attempts", True):
+    attempted_set = set()
+    if not force_rescan and attempt_store and source_hostname and CONFIG.get("record_connection_attempts", True):
         original_count = len(credentials)
-        filtered_credentials = []
-        for cred in credentials:
-            if not graphdb.has_connection_been_attempted(
-                source_hostname, host, port, cred.user, cred.method, cred.secret
-            ):
-                filtered_credentials.append(cred)
-        credentials = filtered_credentials
+        
+        # Get all attempted credentials for this target from SQLite (very fast)
+        try:
+            attempted_set = attempt_store.get_attempted_credentials(
+                source_hostname, host, port
+            ) or set()
+        except Exception as e:
+            sshmap_logger.warning(
+                f"[ATTEMPT_STORE] Failed to get attempted credentials for {host}:{port}: {type(e).__name__}: {e}. Continuing without filtering."
+            )
+            attempted_set = set()
+        
+        # Filter credentials against the set (O(1) lookup per credential)
+        # Check full (user, method, credential) tuple to avoid re-attempting same combination
+        credentials = [
+            cred for cred in credentials
+            if (cred.user, cred.method, cred.secret) not in attempted_set
+        ]
+        
         skipped_count = original_count - len(credentials)
         if skipped_count > 0:
             sshmap_logger.info(
                 f"[OPTIMIZATION] Skipping {skipped_count} already-attempted credentials to {host}:{port} from {source_hostname}"
             )
-    
     # Track retry counts per credential
     retry_counts = {}
 
@@ -251,19 +271,33 @@ async def try_all(
             )
             
             # Record the attempt in the database (if enabled in config)
-            if graphdb and source_hostname and CONFIG.get("record_connection_attempts", True):
+            # SQLite is fast but we give it a generous timeout for high concurrency
+            if attempt_store and source_hostname and CONFIG.get("record_connection_attempts", True):
                 # Get the target hostname if the connection succeeded
-                to_hostname = result.ssh_session.get_remote_hostname() if result and result.ssh_session else None
-                await graphdb.record_connection_attempt(
-                    source_hostname,
-                    to_hostname if to_hostname else host,
-                    host,
-                    port,
-                    credential.user,
-                    credential.method,
-                    credential.secret,
-                    success=result is not None,
-                )
+                to_hostname = result.ssh_session.get_remote_hostname() if result and result.ssh_session else host
+                try:
+                    # Await directly with timeout - SQLite uses thread pool so won't block event loop
+                    await asyncio.wait_for(
+                        attempt_store.record_attempt(
+                            source_hostname,
+                            to_hostname,
+                            host,
+                            port,
+                            credential.user,
+                            credential.method,
+                            credential.secret,
+                            result is not None,
+                        ),
+                        timeout=10.0  # 10 second timeout for high-concurrency scenarios
+                    )
+                except asyncio.TimeoutError:
+                    sshmap_logger.warning(
+                        f"[ATTEMPT_STORE] Record timeout for {credential.user}@{host}:{port} - database may be overwhelmed"
+                    )
+                except Exception as e:
+                    sshmap_logger.debug(
+                        f"[ATTEMPT_STORE] Failed to record: {type(e).__name__}: {e}"
+                    )
             
             return result
 
@@ -345,10 +379,15 @@ async def try_all(
 
     # At the end, re-establish any old connections that weren't found with new credentials
     # This allows scanning to continue through all previously discovered paths
+
     if old_connections and not force_rescan:
         sshmap_logger.info(
             f"[FALLBACK] Re-establishing {len(old_connections)} previous connection(s) not found with new credentials"
         )
+        
+        # Create fallback tasks with timeout protection
+        fallback_tasks = []
+
         for key, conn in old_connections.items():
             props = conn.get('props', {})
             
@@ -368,39 +407,68 @@ async def try_all(
                 f"({host}:{port}) with {user}:{method}"
             )
             
-            # Try to re-establish the connection using the previous credentials
-            try:
-                # Create a credential object for the previous connection
-                prev_cred = Credential(
-                    remote_ip=host,
-                    port=str(port),
-                    user=user,
-                    secret=creds,
-                    method=method
-                )
-                
-                # Try to reconnect with the previous credentials
-                result = await try_single_credential(
-                    host,
-                    port,
-                    prev_cred,
-                    jumper=jumper,
-                    credential_store=credential_store,
-                    ssh_session_manager=ssh_session_manager,
-                )
-                
-                if result:
-                    sshmap_logger.success(
-                        f"[FALLBACK] Successfully re-established connection: {source_hostname} -> {conn['to']}"
+            # Create a credential object for the previous connection
+            prev_cred = Credential(
+                remote_ip=host,
+                port=str(port),
+                user=user,
+                secret=creds,
+                method=method
+            )
+            
+            # Create task with timeout wrapper
+            async def try_fallback_reconnect(cred, target_conn):
+                try:
+                    # Use asyncio.wait_for to add timeout protection
+                    result = await asyncio.wait_for(
+                        try_single_credential(
+                            host,
+                            port,
+                            cred,
+                            jumper=jumper,
+                            credential_store=credential_store,
+                            ssh_session_manager=ssh_session_manager,
+                        ),
+                        timeout=CONFIG["scan_timeout"] * 2  # Give fallback 2x normal timeout
                     )
-                    results.append(result)
+                    return result, target_conn
+                except asyncio.TimeoutError:
+                    sshmap_logger.warning(
+                        f"[FALLBACK] Timeout re-establishing connection to {target_conn.get('to', 'unknown')} ({host}:{port})"
+                    )
+                    return None, target_conn
+                except Exception as e:
+                    sshmap_logger.debug(
+                        f"[FALLBACK] Exception attempting to re-establish connection to {target_conn.get('to', 'unknown')}: {type(e).__name__}: {e}"
+                    )
+                    return None, target_conn
+            
+            task = asyncio.create_task(try_fallback_reconnect(prev_cred, conn))
+            fallback_tasks.append(task)
+        
+        # Execute all fallback attempts concurrently
+        if fallback_tasks:
+            try:
+                fallback_results = await asyncio.gather(*fallback_tasks, return_exceptions=False)
+                
+                for result, target_conn in fallback_results:
+                    if result:
+                        if source_hostname == "machine2_useasjumphost" and host == "172.19.0.3" and port == 22:
+                            sshmap_logger.display(
+                                f"[DEBUG] Fallback successful result: {await result.ssh_session.is_connected()} for {source_hostname} -> {target_conn['to']}"
+                            )
+                        sshmap_logger.success(
+                            f"[FALLBACK] Successfully re-established connection: {source_hostname} -> {target_conn['to']}"
+                        )
+                        results.append(result)
             except Exception as e:
+                if source_hostname == "machine2_useasjumphost" and host == "172.19.0.3" and port == 22:
+                    sshmap_logger.display(
+                        f"[DEBUG] Exception during fallback batch processing: {e}"
+                    )
                 sshmap_logger.warning(
-                    f"[FALLBACK] Failed to re-establish connection to {host}:{port}: {e}"
+                    f"[FALLBACK] Error during fallback batch processing: {e}"
                 )
 
-    # Flush any remaining connection attempts to the database
-    if graphdb and CONFIG.get("record_connection_attempts", True):
-        await graphdb.flush_attempts()
 
     return results

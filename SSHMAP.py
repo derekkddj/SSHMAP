@@ -3,6 +3,7 @@ import asyncio
 import os
 import sys
 from modules import bruteforce, graphdb
+from modules.attempt_store import AttemptStore
 from modules.logger import sshmap_logger, setup_debug_logging
 from modules.helpers.logger import highlight
 from modules.config import CONFIG
@@ -35,8 +36,11 @@ from modules.helpers.AsyncRandomQueue import AsyncRandomQueue
 
 VERSION = "0.2"
 
-# Setup neo4j
+# Setup neo4j for graph data (successful connections)
 graph = graphdb.GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
+
+# Setup SQLite for attempt logging (much faster than Neo4j for this use case)
+attempt_store = AttemptStore(db_path="output/ssh_attempts.db")
 
 start_host, start_ips = get_local_info()
 ssh_ports = CONFIG["ssh_ports"]
@@ -106,6 +110,7 @@ async def handle_target(
                     ssh_session_manager,
                     max_retries,
                     graphdb=graph,
+                    attempt_store=attempt_store,
                     source_hostname=source_host,
                     force_rescan=force_rescan,
                 )

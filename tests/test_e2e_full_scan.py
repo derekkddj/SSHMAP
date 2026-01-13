@@ -112,8 +112,8 @@ class TestE2EFullScan:
             print(f"Neo4j log written to: {log_file.name}")
 
             # ===== ASSERTIONS FOR NEO4J GRAPH =====
-            # Check exactly 15 hosts
-            assert len(hosts) == 15, f"Expected 15 hosts, got {len(hosts)}"
+            # Check exactly 7 hosts
+            assert len(hosts) == 7, f"Expected 7 hosts, got {len(hosts)}"
 
             # Expected hosts (first one uses hostname command for dynamic name)
             expected_hosts = {
@@ -123,15 +123,7 @@ class TestE2EFullScan:
                 "machine3_hidden",
                 "machine4_SUPPERhidden",
                 "machine5_onlykey",
-                "machine6_onlykey_direct",
-                "172.19.0.2",
-                "172.19.0.3",
-                "172.19.0.4",
-                "172.19.0.5",
-                "172.19.0.6",
-                "172.19.0.106",
-                "172.19.0.107",
-                "127.0.0.1"
+                "machine6_onlykey_direct"
             }
             actual_hosts = {h["hostname"] for h in hosts}
             

@@ -17,16 +17,14 @@ class GraphDB:
         self._lock = None  # Initialize lazily when needed
 
     def close(self):
-        """Close the driver and flush any remaining attempts.
+        """Close the driver.
         
-        Note: This is a synchronous method and should be called after all async 
-        operations are complete. It will flush any remaining queued attempts 
-        synchronously before closing the database connection.
+        Note: SSH attempts are now recorded in SQLite (attempt_store.db) for better performance.
+        This method no longer flushes attempts to Neo4j.
+        Only successful SSH connections (ssh_access) are stored in Neo4j as graph relationships.
         """
-        # Flush any remaining attempts before closing (synchronous flush is safe here
-        # because this is a cleanup method called after all async operations complete)
-        if self._attempt_queue:
-            self._flush_attempts_sync()
+        # Clear the attempt queue since we're no longer using Neo4j for attempt logging
+        self._attempt_queue.clear()
         self.driver.close()
     
     def _flush_attempts_sync(self):
@@ -551,7 +549,7 @@ class GraphDB:
         # Flush outside the lock to avoid deadlock
         if should_flush:
             await self.flush_attempts()
-
+ 
     def get_all_attempted_connections(self, from_hostname):
         """
         Get all connection attempts from a specific host.
@@ -582,3 +580,40 @@ class GraphDB:
                 }
                 for record in result
             ]
+    
+    def get_attempted_connections_for_target(self, from_hostname, to_ip, port):
+        """
+        Get all connection attempts from a specific host to a specific target.
+        This is optimized for batch checking to avoid N+1 queries.
+        Also checks the in-memory queue.
+        
+        :param from_hostname: Source hostname
+        :param to_ip: Target IP address
+        :param port: Target port
+        :return: Set of tuples (user, method, creds) that have been attempted
+        """
+        attempted = set()
+        
+        # Check in-memory queue first
+        for attempt in self._attempt_queue:
+            if (attempt['from_hostname'] == from_hostname and
+                attempt['to_ip'] == to_ip and
+                attempt['port'] == port):
+                attempted.add((attempt['user'], attempt['method'], attempt['creds']))
+        
+        # Query database
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (src:Host {hostname: $from_hostname})-[r:SSH_ATTEMPT]->(dst)
+                WHERE r.ip = $ip AND r.port = $port
+                RETURN r.user AS user, r.method AS method, r.creds AS creds
+                """,
+                from_hostname=from_hostname,
+                ip=to_ip,
+                port=port,
+            )
+            for record in result:
+                attempted.add((record["user"], record["method"], record["creds"]))
+        
+        return attempted
