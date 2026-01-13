@@ -276,13 +276,44 @@ async def async_main(args):
         graphdb=graph, credential_store=credential_store
     )
 
+    # Handle --start-from option to start scanning from a remote host
+    initial_jump_host = start_host
+    initial_jump_session = None
+    if args.start_from:
+        # Verify the remote host exists in the graph database
+        remote_host_info = graph.get_host(args.start_from)
+        if not remote_host_info:
+            sshmap_logger.error(
+                f"Remote host '{args.start_from}' not found in graph database. "
+                f"Please run a scan first to discover this host."
+            )
+            return
+        
+        sshmap_logger.display(
+            f"Starting scan from remote host: {args.start_from}"
+        )
+        
+        # Get SSH session to the remote host
+        try:
+            initial_jump_session = await ssh_session_manager.get_session(
+                args.start_from, start_host
+            )
+            initial_jump_host = args.start_from
+            sshmap_logger.success(
+                f"Successfully connected to remote host: {args.start_from}"
+            )
+        except Exception as e:
+            sshmap_logger.error(
+                f"Failed to establish SSH session to {args.start_from}: {e}"
+            )
+            return
+
     # Launch multiple tasks concurrently for all targets
     queue = AsyncRandomQueue()
-    initial_jump_host = start_host
     task_ids = {}
     random.shuffle(new_targets)
     for target in new_targets:
-        await queue.put((target, 1, None))
+        await queue.put((target, 1, initial_jump_session))
 
     with Live(progress, console=console, refresh_per_second=10):
 
@@ -443,6 +474,12 @@ def main():
         "--log-file",
         default=f"{currenttime}_SSHMAP_SCAN.log",
         help="Path to the log file",
+    )
+    parser.add_argument(
+        "--start-from",
+        type=str,
+        default=None,
+        help="Start scanning from a specific remote hostname (must exist in graphdb)",
     )
 
     args = parser.parse_args()
