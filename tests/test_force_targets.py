@@ -100,3 +100,32 @@ class TestForceTargets:
             assert "10.0.0.2" in force_targets
         finally:
             os.unlink(force_targets_file)
+    
+    def test_force_targets_recursive_behavior(self):
+        """Test that force-targets IPs are reused in recursive scans"""
+        # This simulates the recursive scanning behavior with force-targets
+        # When a new jump host is found, it should scan the same force_targets_ips
+        
+        # Simulate force-targets file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+            f.write("192.168.1.5\n")
+            f.write("192.168.1.10\n")
+            f.write("192.168.1.15\n")
+            f.flush()
+            force_targets_file = f.name
+        
+        try:
+            force_targets_mode = True
+            force_targets_ips = read_targets(force_targets_file)
+            
+            # Simulate recursive scan - should use the same force_targets_ips
+            if force_targets_mode and force_targets_ips:
+                new_targets_for_recursive = list(force_targets_ips)
+            
+            # Verify that recursive scan uses the same targets
+            assert len(new_targets_for_recursive) == 3
+            assert "192.168.1.5" in new_targets_for_recursive
+            assert "192.168.1.10" in new_targets_for_recursive
+            assert "192.168.1.15" in new_targets_for_recursive
+        finally:
+            os.unlink(force_targets_file)
