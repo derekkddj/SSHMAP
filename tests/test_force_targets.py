@@ -28,7 +28,7 @@ class TestForceTargets:
     def test_read_force_targets_with_cidr(self):
         """Test reading a force-targets file with CIDR notation"""
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
-            f.write("10.0.0.0/30\n")  # /30 network: 4 total IPs, 2 usable hosts
+            f.write("10.0.0.0/30\n")  # 2 usable host addresses (10.0.0.1 and 10.0.0.2)
             f.flush()
             force_targets_file = f.name
         
