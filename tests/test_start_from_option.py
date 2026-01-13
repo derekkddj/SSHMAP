@@ -15,9 +15,12 @@ class TestStartFromOption:
         """Test that --start-from argument is properly defined in the parser"""
         # We can test this by checking the SSHMAP.py main() function
         import subprocess
+        import os
+        # Get the project root directory dynamically
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         result = subprocess.run(
             ['python3', 'SSHMAP.py', '--help'],
-            cwd='/home/runner/work/SSHMAP/SSHMAP',
+            cwd=project_root,
             capture_output=True,
             text=True
         )

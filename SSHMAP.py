@@ -302,9 +302,15 @@ async def async_main(args):
             sshmap_logger.success(
                 f"Successfully connected to remote host: {args.start_from}"
             )
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError) as e:
             sshmap_logger.error(
                 f"Failed to establish SSH session to {args.start_from}: {e}"
+            )
+            return
+        except Exception as e:
+            # Catch-all for unexpected errors (e.g., from asyncssh or graph database)
+            sshmap_logger.error(
+                f"Unexpected error connecting to {args.start_from}: {e}"
             )
             return
 
