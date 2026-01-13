@@ -74,6 +74,7 @@ async def handle_target(
     jump=None,
     queue=None,
     blacklist_ips=None,
+    whitelist_ips=None,
     progress=None,
     task_ids=None,
     ssh_session_manager=None,
@@ -176,6 +177,11 @@ async def handle_target(
                             new_targets = [
                                 ip for ip in new_targets if ip not in blacklist_ips
                             ]
+                            # filter by whitelist if provided
+                            if whitelist_ips:
+                                new_targets = [
+                                    ip for ip in new_targets if ip in whitelist_ips
+                                ]
                             # tests with 4 ips only, for docker tests
                             """
                             new_targets = [
@@ -217,7 +223,7 @@ async def handle_target(
         raise
 
 
-async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips):
+async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, whitelist_ips):
     while True:
         try:
             target, depth, jumper = await queue.get()
@@ -231,6 +237,7 @@ async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips):
                     jump=jumper,
                     queue=queue,
                     blacklist_ips=blacklist_ips,
+                    whitelist_ips=whitelist_ips,
                 )
 
         except asyncio.CancelledError:
@@ -260,8 +267,15 @@ async def async_main(args):
     graph.add_host(start_host, start_ips)
 
     blacklist_ips = read_targets(args.blacklist) if args.blacklist else []
-    # remove ips in blacklist from targets
-    new_targets = [ip for ip in targets if ip not in blacklist_ips]
+    whitelist_ips = read_targets(args.whitelist) if args.whitelist else None
+    
+    # filter targets based on whitelist and blacklist
+    if whitelist_ips:
+        # if whitelist is provided, only scan IPs in the whitelist
+        new_targets = [ip for ip in targets if ip in whitelist_ips and ip not in blacklist_ips]
+    else:
+        # otherwise, just remove blacklisted IPs
+        new_targets = [ip for ip in targets if ip not in blacklist_ips]
     
     if args.force_rescan:
         sshmap_logger.display("Force rescan enabled - retrying all connection attempts including previously attempted ones.")
@@ -349,6 +363,7 @@ async def async_main(args):
                             jumper,
                             queue,
                             blacklist_ips,
+                            whitelist_ips,
                             progress,
                             task_ids,
                             ssh_session_manager,
@@ -426,6 +441,9 @@ def main():
     )
     parser.add_argument(
         "--blacklist", required=False, help="Path to the file with IPs to ignore"
+    )
+    parser.add_argument(
+        "--whitelist", required=False, help="Path to the file with IPs or CIDRs that are the only IPs that can be scanned"
     )
     parser.add_argument(
         "--users",
