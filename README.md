@@ -40,22 +40,15 @@ options:
   --verbose             enable verbose output
 ```
 ## Features
-- 🔐 SSH bruteforce with passwords and private keys
-- 🗃️ Neo4j integration
-- 🪵 Standard Python logging
-- 🧩 Modular architecture
-- ⚡ Async scanning, fast as it can be
-- 🖥️ CLI with argparse
-- 🎯 Smart connection tracking - skips already-attempted connections for faster subsequent runs
-- 📊 Batched database writes for optimal performance with thousands of connection attempts
-- 🔄 Start scanning from any discovered remote host with `--start-from` option
-
-## Performance Optimization
-
-For large-scale brute-force scans with thousands of connection attempts, SSHMAP now uses batched database writes to avoid bottlenecks:
-- **Automatic Batching**: Connection attempts are queued in memory and written to Neo4j in batches of 100
-- **Configurable Recording**: Set `record_connection_attempts: False` in config.yml to disable attempt tracking entirely for maximum speed
-- **No More Hangs**: The scan will complete even with tens of thousands of connection attempts
+- SSH bruteforce with passwords and private keys
+- Neo4j integration
+- Standard Python logging
+- Modular architecture
+- Async scanning, fast as it can be
+- CLI with argparse
+- Smart connection tracking - skips already-attempted connections for faster subsequent runs
+- Batched database writes for optimal performance with thousands of connection attempts
+- Start scanning from any discovered remote host with `--start-from` option
 
 ## Screenshots
 Attacking just one machine, and using it as a jump host:
@@ -164,12 +157,11 @@ python SSHMAP.py --targets wordlists/new_targets.txt --users wordlists/usernames
 
 #### Smart Connection Tracking
 
-SSHMAP now tracks all connection attempts in Neo4j and automatically skips already-attempted connections, significantly reducing scan time on subsequent runs.
+SSHMAP now tracks all connection attempts in sqlite and automatically skips already-attempted connections, significantly reducing scan time on subsequent runs.
 
 **How it works:**
 - Tracks each connection attempt: `from_host → to_host` with specific credentials (user, method, password/key)
 - New credentials are automatically tried from **all known hosts** to **all targets**
-- If you can connect from host A to host B, SSHMAP will also try connecting from host C to host B
 - Each unique combination is only attempted once (unless `--force-rescan` is used)
 
 **First run:**
@@ -209,7 +201,7 @@ This ensures that:
   - Fallback: Re-uses previous connection machine1 → machine2 with old credentials
   - Tries `test:test123` from machine2 to machine3 → fails
   - Fallback: Re-uses previous connection machine2 → machine3 with old credentials
-  - Tries `test:test123` from machine3 to machine4 → succeeds! ✓
+  - Tries `test:test123` from machine3 to machine4 → succeeds! 
 
 **Example scenario (multiple paths):**
 - First run discovers: `machine2 → machine3` and `machine2 → machine4` (with old credentials)
@@ -226,12 +218,6 @@ python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --p
 # Retries all connection attempts, including previously attempted ones
 ```
 
-**Connection attempt tracking:**
-- All attempts (successful and failed) are recorded in Neo4j as `SSH_ATTEMPT` edges
-- Successful connections create additional `SSH_ACCESS` edges (existing behavior)
-- Each `SSH_ATTEMPT` edge includes: user, method, credentials, success status, and timestamp
-- Previous successful connections are automatically re-used when no new connections are found
-- Use Neo4j browser to query attempt history: `MATCH ()-[r:SSH_ATTEMPT]->() RETURN r`
 
 ### View the graph in the Neo4J console:
 
@@ -382,5 +368,4 @@ ssh_brute_project/
 - [ ] Create POST-Explotation modules, like launch linpeas or linux exploit suggester
 - [x] Better clean stop after Ctrl-C
 - [x] Session manager, to close and create SSH tunnels bettter
-- [ ] The SSHSessionManager must try to connect to the machine with various jumps if one of them does not work. How to "blacklist" an specific node?
 - [x] Timestamt de los intentos realizados, en el fichero de log
