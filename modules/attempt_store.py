@@ -155,29 +155,33 @@ class AttemptStore:
 
     def get_successful_attempts(
         self, source_hostname: str, target_ip: str, target_port: int
-    ) -> list:
-        """Get all successful attempts for a target."""
+    ) -> set:
+        """Get all successful attempts for a target.
+        
+        Returns a set of (username, method, credential) tuples that were successful.
+        """
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             cursor.execute(
                 """
-                SELECT username, method FROM ssh_attempts
+                SELECT DISTINCT username, method, credential FROM ssh_attempts
                 WHERE source_hostname = ? AND target_ip = ? AND target_port = ? AND success = 1
-                ORDER BY timestamp DESC
                 """,
                 (source_hostname, target_ip, target_port),
             )
             
             results = cursor.fetchall()
             conn.close()
-            return results
+            
+            # Return set of (username, method, credential) tuples
+            return set((username, method, credential) for username, method, credential in results)
         except Exception as e:
             sshmap_logger.debug(
                 f"[ATTEMPT_STORE] Failed to get successful attempts: {type(e).__name__}: {e}"
             )
-            return []
+            return set()
 
     def close(self):
         """Close the database connection."""

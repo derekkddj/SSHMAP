@@ -62,6 +62,7 @@ class TestE2EFullScan:
             "--credentialspath", csv_file,
             "--keys", keys_dir,
             "--verbose",
+            "--force-rescan",
             "--maxworkers", "200",
             "--maxworkers-ssh", "25",
         ], cwd=os.path.dirname(__file__).replace('tests', ''), capture_output=True, text=True)
