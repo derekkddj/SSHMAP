@@ -28,13 +28,13 @@ class TestWhitelistFiltering:
     def test_read_targets_with_cidr(self):
         """Test reading a whitelist file with CIDR notation"""
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
-            f.write("192.168.1.0/30\n")  # This should expand to 192.168.1.1 and 192.168.1.2
+            f.write("192.168.1.0/30\n")  # /30 network: 4 total IPs, 2 usable hosts (192.168.1.1 and 192.168.1.2)
             f.flush()
             whitelist_file = f.name
         
         try:
             whitelist_ips = read_targets(whitelist_file)
-            assert len(whitelist_ips) == 2  # /30 gives 2 hosts
+            assert len(whitelist_ips) == 2  # /30 gives 2 usable host addresses
             assert "192.168.1.1" in whitelist_ips
             assert "192.168.1.2" in whitelist_ips
         finally:
@@ -105,12 +105,12 @@ class TestWhitelistFiltering:
     
     def test_whitelist_with_cidr_and_blacklist(self):
         """Test whitelist with CIDR notation combined with blacklist"""
-        # Create test target list - expand 192.168.1.0/29 (8 IPs total, 6 hosts)
+        # /29 network: 8 total addresses with 6 usable host addresses
         targets = [f"192.168.1.{i}" for i in range(1, 7)]
         
         # Create whitelist with CIDR
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
-            f.write("192.168.1.0/29\n")  # 192.168.1.1-6 hosts
+            f.write("192.168.1.0/29\n")  # Usable hosts: 192.168.1.1 through 192.168.1.6
             f.flush()
             whitelist_file = f.name
         
