@@ -190,7 +190,7 @@ def get_node(node_id):
             outgoing = session.run("""
                 MATCH (h:Host)-[r:SSH_ACCESS]->(target:Host)
                 WHERE id(h) = $node_id
-                RETURN target.hostname AS target, r.user AS user,
+                RETURN id(r) AS edge_id, target.hostname AS target, r.user AS user,
                        r.method AS method, r.ip AS ip, r.port AS port
             """, node_id=node_id)
 
@@ -198,7 +198,7 @@ def get_node(node_id):
             incoming = session.run("""
                 MATCH (source:Host)-[r:SSH_ACCESS]->(h:Host)
                 WHERE id(h) = $node_id
-                RETURN source.hostname AS source, r.user AS user,
+                RETURN id(r) AS edge_id, source.hostname AS source, r.user AS user,
                        r.method AS method, r.ip AS ip, r.port AS port
             """, node_id=node_id)
 
@@ -299,6 +299,86 @@ def get_hosts():
         return jsonify({'hostnames': hostnames})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/node/<int:node_id>', methods=['DELETE'])
+def delete_node(node_id):
+    """
+    Delete a node (host) from the database.
+    """
+    try:
+        with db.driver.session() as session:
+            result = session.run("""
+                MATCH (n:Host)
+                WHERE id(n) = $node_id
+                DETACH DELETE n
+                RETURN count(n) AS deleted
+            """, node_id=node_id)
+            
+            record = result.single()
+            if record['deleted'] > 0:
+                return jsonify({'success': True, 'message': 'Node deleted successfully'})
+            else:
+                return jsonify({'success': False, 'error': 'Node not found'}), 404
+                
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/edge/<int:edge_id>', methods=['DELETE'])
+def delete_edge(edge_id):
+    """
+    Delete an edge (SSH_ACCESS relationship) from the database.
+    """
+    try:
+        with db.driver.session() as session:
+            result = session.run("""
+                MATCH ()-[r:SSH_ACCESS]->()
+                WHERE id(r) = $edge_id
+                DELETE r
+                RETURN count(r) AS deleted
+            """, edge_id=edge_id)
+            
+            record = result.single()
+            if record['deleted'] > 0:
+                return jsonify({'success': True, 'message': 'Edge deleted successfully'})
+            else:
+                return jsonify({'success': False, 'error': 'Edge not found'}), 404
+                
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/clean-database', methods=['DELETE'])
+def clean_database():
+    """
+    Delete all nodes and relationships from the database.
+    """
+    try:
+        with db.driver.session() as session:
+            # Count before deletion
+            count_result = session.run("""
+                MATCH (n:Host)
+                OPTIONAL MATCH (n)-[r:SSH_ACCESS]-()
+                RETURN count(DISTINCT n) AS nodes, count(DISTINCT r) AS rels
+            """)
+            counts = count_result.single()
+            
+            # Delete everything
+            session.run("""
+                MATCH (n:Host)
+                DETACH DELETE n
+            """)
+            
+            return jsonify({
+                'success': True,
+                'message': 'Database cleaned successfully',
+                'nodes_deleted': counts['nodes'],
+                'relationships_deleted': counts['rels']
+            })
+                
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/execute', methods=['POST'])

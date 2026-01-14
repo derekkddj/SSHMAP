@@ -34,7 +34,7 @@ import random
 from modules.helpers.AsyncRandomQueue import AsyncRandomQueue
 
 
-VERSION = "0.2"
+VERSION = "1.0.0"
 
 # Setup neo4j for graph data (successful connections)
 graph = graphdb.GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])

@@ -4,22 +4,23 @@
 A modular Python tool for performing SSH bruteforce attacks, storing access relationships in a Neo4j graph.
 There is a cli tool to get the paths from one starting point to other machines, and can creates que SSH commands to connect to the final machine.
 ```bash
- $ python3 SSHMAP.py --help                                                                                                                                          
-usage: SSHMAP.py [-h] --targets TARGETS [--blacklist BLACKLIST] [--users USERS] [--passwords PASSWORDS] [--credentialspath CREDENTIALSPATH] [--keys KEYS] [--maxworkers MAXWORKERS]
-                 [--maxdepth MAXDEPTH] [--debug] [--verbose]
+ $ sshmap --help                                                                
+usage: sshmap [-h] --targets TARGETS [--blacklist BLACKLIST] [--whitelist WHITELIST] [--force-targets FORCE_TARGETS] [--users USERS]
+              [--passwords PASSWORDS] [--credentialspath CREDENTIALSPATH] [--keys KEYS] [--maxworkers MAXWORKERS]
+              [--maxworkers-ssh MAXWORKERS_SSH] [--max-retries MAX_RETRIES] [--maxdepth MAXDEPTH] [--force-rescan] [--debug] [--verbose]
+              [--log] [--log-file LOG_FILE] [--start-from START_FROM]
 
-███████╗███████╗██╗  ██╗███╗   ███╗ █████╗ ██████╗
-██╔════╝██╔════╝██║  ██║████╗ ████║██╔══██╗██╔══██╗
-███████╗███████╗███████║██╔████╔██║███████║██████╔╝
-╚════██║╚════██║██╔══██║██║╚██╔╝██║██╔══██║██╔═══╝
-███████║███████║██║  ██║██║ ╚═╝ ██║██║  ██║██║
-╚══════╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝
-
+    ███████╗███████╗██╗  ██╗███╗   ███╗ █████╗ ██████╗
+    ██╔════╝██╔════╝██║  ██║████╗ ████║██╔══██╗██╔══██╗
+    ███████╗███████╗███████║██╔████╔██║███████║██████╔╝
+    ╚════██║╚════██║██╔══██║██║╚██╔╝██║██╔══██║██╔═══╝
+    ███████║███████║██║  ██║██║ ╚═╝ ██║██║  ██║██║
+    ╚══════╝╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝
 
         SSH Credential Mapper - SSHMAP
         Navigating the Maze of Access...
 
-    Version : 0.2
+        Version : 1.0.0
 
 
 options:
@@ -27,6 +28,10 @@ options:
   --targets TARGETS     Path to the file with target IPs
   --blacklist BLACKLIST
                         Path to the file with IPs to ignore
+  --whitelist WHITELIST
+                        Path to the file with IPs or CIDRs that are the only IPs that can be scanned
+  --force-targets FORCE_TARGETS
+                        Path to the file with IPs or CIDRs that are the ONLY targets to scan (ignores whitelist/blacklist, uses same targets for recursive scans)
   --users USERS         Path to the file with usernames for bruteforce
   --passwords PASSWORDS
                         Path to the file with passwords for bruteforce
@@ -34,10 +39,20 @@ options:
                         Path to CSV credentials file, will populate users and passwords
   --keys KEYS           Path to directory with SSH private keys
   --maxworkers MAXWORKERS
-                        Number of workers for target
-  --maxdepth MAXDEPTH   Depth of the scan
+                        Number of workers for concurrent IP attack
+  --maxworkers-ssh MAXWORKERS_SSH
+                        Number of workers for ssh user:password try
+  --max-retries MAX_RETRIES
+                        Maximum number of retries for transient connection failures
+  --maxdepth MAXDEPTH   Max depth of the scan
+  --force-rescan        Force retry of already-attempted connections (ignore attempt history)
   --debug               enable debug level information
   --verbose             enable verbose output
+  --log                 enable logging to file
+  --log-file LOG_FILE   Path to the log file
+  --start-from START_FROM
+                        Start scanning from a specific remote hostname (must exist in graphdb)
+
 ```
 ## Features
 - SSH bruteforce with passwords and private keys
@@ -78,10 +93,6 @@ Verify and see options:
 sshmap --help
 ```
 
-### Install Requirements
-```bash
-pip install -r requirements.txt
-```
 ### Prepare Wordlists
 
 - wordlists/users.txt
@@ -141,7 +152,7 @@ You should put the plugin in *C:\neo4j\plugins*, download it from [Github APOC](
 
 Then run the program from your starting host.
 ```bash
-python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+$ sshmap --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 ```
 
 #### Starting from a Remote Host
@@ -156,10 +167,10 @@ SSHMAP supports starting the scan from any previously discovered remote host usi
 **Example usage:**
 ```bash
 # First, run an initial scan to discover some hosts
-python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+$ sshmap --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 
 # Later, start scanning from a discovered remote host
-python SSHMAP.py --targets wordlists/new_targets.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --start-from machine2_useasjumphost
+$ sshmap --targets wordlists/new_targets.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --start-from machine2_useasjumphost
 
 # The scan will now originate from machine2_useasjumphost instead of your local machine
 ```
@@ -185,14 +196,14 @@ SSHMAP now tracks all connection attempts in sqlite and automatically skips alre
 
 **First run:**
 ```bash
-python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+$ sshmap --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 # All connection attempts are made and recorded in Neo4j
 ```
 
 **Subsequent runs with new credentials:**
 ```bash
 # Add new credentials to your wordlists
-python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
+$ sshmap--targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 # Only new credential combinations are tried - already-attempted connections are automatically skipped
 # Output: "[OPTIMIZATION] Skipping N already-attempted credentials for host:port from source"
 # If no new connections found, previous successful connections are automatically re-used
@@ -233,7 +244,7 @@ This ensures that:
 
 **Force retry all connections:**
 ```bash
-python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --force-rescan
+$ sshmap --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/ --force-rescan
 # Retries all connection attempts, including previously attempted ones
 ```
 
@@ -246,22 +257,24 @@ Firts go to http://localhost:7474/browser/preview/ and browse the data.
 
 ### Use the Web Interface (Recommended):
 
-SSHMAP now includes a web-based interface for exploring your SSH connection graph with an intuitive GUI!
+SSHMAP now includes a web-based interface for exploring your SSH connection graph with an intuitive GUI! 
 
 **Start the web server:**
 ```bash
-python3 sshmap_web.py
+$ sshmap-web
 ```
 
 Then open your browser and navigate to: **http://127.0.0.1:5000**
 
+![image](docs/media/new_web.png)
+
 **Features:**
-- 🎨 **Interactive Graph Visualization** - See all your SSH connections in a dynamic, interactive network graph
-- 🔍 **Search Functionality** - Find nodes and connections by hostname, IP, user, or port
-- 🛤️ **Path Finder** - Discover routes between any two hosts in your network
-- 📊 **Statistics Dashboard** - View network statistics at a glance
-- 💡 **Node & Edge Details** - Click on any node or connection to see detailed information
-- 🎯 **Autocomplete** - Easy hostname selection with autocomplete suggestions
+- **Interactive Graph Visualization** - See all your SSH connections in a dynamic, interactive network graph
+- **Search Functionality** - Find nodes and connections by hostname, IP, user, or port
+- **Path Finder** - Discover routes between any two hosts in your network
+- **Statistics Dashboard** - View network statistics at a glance
+- **Node & Edge Details** - Click on any node or connection to see detailed information
+- **Autocomplete** - Easy hostname selection with autocomplete suggestions
 
 The web interface provides a much more intuitive way to explore and understand your SSH network topology compared to the Neo4j browser interface.
 
@@ -271,7 +284,7 @@ The web interface provides a much more intuitive way to explore and understand y
 
 There is a simple cli with its owns options. This tool is used to find paths between two nodes and to generate automatic SSH configurations to connect.
 ```bash
-$ python3 sshmap_cli.py --help
+$ sshmap-cli --help
 usage: sshmap_cli.py [-h] [--all] [--max-depth MAX_DEPTH] [--write-config] [--method {proxyjump,proxycommand}] start end
 
 SSH Path Visualizer
@@ -292,7 +305,7 @@ options:
 
 Example of finding the path from node A to node B:
 ```bash
-$ python3 sshmap_cli.py DESKTOP-BH0L19M machine4_SUPPERhidden                                                                                                               
+$ sshmap-cli DESKTOP-BH0L19M machine4_SUPPERhidden                                                                                                               
 ╭───────────── Shortest SSH Path ─────────────╮
 │ DESKTOP-BH0L19M ──▶ machine2_useasjumphost  │
 │ user: root   method: password   creds: root │
@@ -309,7 +322,7 @@ $ python3 sshmap_cli.py DESKTOP-BH0L19M machine4_SUPPERhidden
 ```
 Example of generate the configuration file for SSH:
 ```bash
-$ python3 sshmap_cli.py --write-config DESKTOP-BH0L19M machine4_SUPPERhidden                                                                                 
+$ sshmap-cli --write-config DESKTOP-BH0L19M machine4_SUPPERhidden                                                                                 
 ╭───────────── Shortest SSH Path ─────────────╮
 │ DESKTOP-BH0L19M ──▶ machine2_useasjumphost  │
 │ user: root   method: password   creds: root │
@@ -361,7 +374,7 @@ This is a simple program to execute commands on the machines found with the SSHM
 The help shows all the info needed. This program uses the class SSHSessionManager to create and reuse SSH connections.
 
 ```bash
-python3 sshmap_execute.py --help                                                                                     
+sshmap-execute --help                                                                                     
 usage: sshmap_execute.py [-h] [--hostname HOSTNAME] [--command COMMAND] [--all] [--credentialspath CREDENTIALSPATH] [--debug] [--verbose]
                          [--maxworkers MAXWORKERS] [--output OUTPUT] [--quiet] [--no-store]
 
@@ -386,22 +399,56 @@ options:
 
 ### Project Structure
 ```bash
-ssh_brute_project/
+SSHMAP/
 ├── SSHMAP.py             # Main program to scan the network
-├── sshmap_cli.py         # Simle CLI to find paths in the Neo4J database.
-├── sshmap_execute.py     # Simle CLI to execute commands in targets, usign SSHSessionManager
-├── modules/              # Internal modules.
-│   ├── bruteforce.py     # SSH brute logic
+├── sshmap_cli.py         # Simple CLI to find paths in the Neo4j database
+├── sshmap_execute.py     # Simple CLI to execute commands in targets, using SSHSessionManager
+├── sshmap_web.py         # Web interface launcher
+├── web_app.py            # Flask web application with REST API
+├── setup.py              # Package configuration and CLI entry points
+├── requirements.txt      # Python dependencies
+├── modules/              # Internal modules
+│   ├── __init__.py
+│   ├── bruteforce.py     # SSH brute force logic
 │   ├── graphdb.py        # Neo4j wrapper
 │   ├── key_scanner.py    # Remote SSH key search
 │   ├── config.py         # Configuration management
-│   ├── console.py        # Aux python for logging
-│   ├── credential_store.py # Found credentials manage
-│   ├── logger.py         # Logger setup 
+│   ├── console.py        # Auxiliary functions for logging
+│   ├── credential_store.py # Found credentials manager
+│   ├── logger.py         # Logger setup
 │   ├── paths.py          # Helper class for managing store paths
-│   ├── SSHSession.py     # Wrapper for a SSH connection with info about the "JUMP"
-│   ├── SSHSeessionManager.py # manager of SSHSessions, crete, save, and reuse
-└── └── utils.py          # Utils and functions
+│   ├── SSHSession.py     # Wrapper for SSH connection with jump host info
+│   ├── SSHSessionManager.py # Manager of SSHSessions (create, save, and reuse)
+│   ├── utils.py          # Utility functions
+│   ├── attempt_store.py  # Connection attempt tracking (SQLite)
+│   └── helpers/          # Helper modules
+│       ├── AsyncRandomQueue.py
+│       └── logger.py
+├── static/               # Web interface static files
+│   ├── css/
+│   │   └── style.css     # Dark theme styles
+│   └── js/
+│       └── app.js        # Graph visualization and UI logic
+├── templates/            # Web interface templates
+│   └── index.html        # Main web interface HTML
+├── tests/                # Test suite
+│   ├── conftest.py
+│   ├── docker-compose.yaml
+│   ├── test_*.py         # Various test files
+│   └── ...
+├── wordlists/            # Sample wordlists
+│   ├── users.txt
+│   ├── passwords.txt
+│   ├── ips.txt
+│   ├── blacklist.txt
+│   ├── credentials.csv
+│   └── keys/             # SSH private keys directory
+├── examples/             # Example scripts
+│   └── api_usage_example.py
+├── docs/                 # Documentation
+│   └── media/            # Screenshots and media files
+├── output/               # Command execution output files
+└── logs/                 # Execution logs (JSONL format)
 ```
 ### Future Work
 

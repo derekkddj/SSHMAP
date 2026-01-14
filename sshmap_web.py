@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Import and run the web app
 from web_app import app, db
 
-if __name__ == '__main__':
+def main():
     try:
         print()
         print("=" * 70)
@@ -48,3 +48,6 @@ if __name__ == '__main__':
             db.close()
         except Exception:
             pass
+
+if __name__ == '__main__':
+    main()

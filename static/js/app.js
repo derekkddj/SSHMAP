@@ -33,6 +33,12 @@ function initNetwork() {
     const options = getLayoutOptions(currentLayout);
     network = new vis.Network(container, data, options);
     
+    // Prevent default browser context menu
+    container.addEventListener('contextmenu', function(event) {
+        event.preventDefault();
+        return false;
+    });
+    
     // Event listeners for node/edge selection
     network.on('selectNode', function(params) {
         if (params.nodes.length > 0) {
@@ -55,6 +61,22 @@ function initNetwork() {
     network.on('deselectEdge', function() {
         showDefaultInfo();
     });
+    
+    // Context menu on right-click
+    network.on('oncontext', function(params) {
+        params.event.preventDefault();
+        
+        const nodeId = network.getNodeAt(params.pointer.DOM);
+        const edgeId = network.getEdgeAt(params.pointer.DOM);
+        
+        if (nodeId) {
+            showContextMenu(params.event, nodeId, null);
+        } else if (edgeId) {
+            showContextMenu(params.event, null, edgeId);
+        } else {
+            hideContextMenu();
+        }
+    });
 }
 
 // Get layout options based on selected layout type
@@ -67,7 +89,6 @@ function getLayoutOptions(layoutType) {
                 size: 14,
                 face: 'Arial',
                 color: '#ffffff',
-                bold: { enabled: true },
                 strokeWidth: 0
             },
             borderWidth: 3,
@@ -122,9 +143,7 @@ function getLayoutOptions(layoutType) {
             hover: true,
             tooltipDelay: 50,
             navigationButtons: true,
-            keyboard: {
-                enabled: false
-            },
+            keyboard: false,
             multiselect: true,
             selectable: true
         },
@@ -454,7 +473,7 @@ function displayNodeDetails(data) {
         
         data.outgoing_connections.forEach(conn => {
             html += `
-                <div class="connection-item">
+                <div class="connection-item" style="cursor: pointer;" onclick="focusOnEdge(${conn.edge_id})" title="Click to focus on this connection">
                     <strong>→ ${escapeHtml(conn.target)}</strong><br>
                     User: ${escapeHtml(conn.user)}<br>
                     IP: ${escapeHtml(conn.ip)}:${conn.port}<br>
@@ -478,7 +497,7 @@ function displayNodeDetails(data) {
         
         data.incoming_connections.forEach(conn => {
             html += `
-                <div class="connection-item">
+                <div class="connection-item" style="cursor: pointer;" onclick="focusOnEdge(${conn.edge_id})" title="Click to focus on this connection">
                     <strong>← ${escapeHtml(conn.source)}</strong><br>
                     User: ${escapeHtml(conn.user)}<br>
                     IP: ${escapeHtml(conn.ip)}:${conn.port}<br>
@@ -728,6 +747,12 @@ function changeLayout(layoutType) {
     const options = getLayoutOptions(layoutType);
     network = new vis.Network(container, data, options);
     
+    // Prevent default browser context menu
+    container.addEventListener('contextmenu', function(event) {
+        event.preventDefault();
+        return false;
+    });
+    
     // Reattach event listeners
     network.on('selectNode', function(params) {
         if (params.nodes.length > 0) {
@@ -749,6 +774,22 @@ function changeLayout(layoutType) {
     
     network.on('deselectEdge', function() {
         showDefaultInfo();
+    });
+    
+    // Context menu on right-click
+    network.on('oncontext', function(params) {
+        params.event.preventDefault();
+        
+        const nodeId = network.getNodeAt(params.pointer.DOM);
+        const edgeId = network.getEdgeAt(params.pointer.DOM);
+        
+        if (nodeId) {
+            showContextMenu(params.event, nodeId, null);
+        } else if (edgeId) {
+            showContextMenu(params.event, null, edgeId);
+        } else {
+            hideContextMenu();
+        }
     });
     
     // Update UI to show active layout
@@ -1051,6 +1092,13 @@ function setupEventListeners() {
     const searchResults = document.getElementById('searchResults');
     let searchTimeout = null;
     
+    // Hide context menu on any click
+    document.addEventListener('click', function(event) {
+        if (!event.target.closest('#contextMenu')) {
+            hideContextMenu();
+        }
+    });
+    
     searchInput.addEventListener('input', function() {
         clearTimeout(searchTimeout);
         const query = this.value;
@@ -1261,11 +1309,281 @@ function escapeHtml(text) {
 function toggleSidebar(side) {
     if (side === 'left') {
         const sidebar = document.getElementById('leftSidebar');
+        const floatingBtn = document.getElementById('floatingLeftToggle');
         sidebar.classList.toggle('collapsed');
+        
+        // Show/hide floating button
+        if (sidebar.classList.contains('collapsed')) {
+            floatingBtn.classList.add('visible');
+        } else {
+            floatingBtn.classList.remove('visible');
+        }
     } else if (side === 'right') {
         const sidebar = document.getElementById('rightSidebar');
+        const floatingBtn = document.getElementById('floatingRightToggle');
         sidebar.classList.toggle('collapsed');
+        
+        // Show/hide floating button
+        if (sidebar.classList.contains('collapsed')) {
+            floatingBtn.classList.add('visible');
+        } else {
+            floatingBtn.classList.remove('visible');
+        }
     }
+}
+
+// Focus on a node by hostname
+function focusOnHostname(hostname) {
+    const node = allNodes.find(n => n.hostname === hostname);
+    if (node) {
+        network.focus(node.id, {
+            scale: 1.5,
+            animation: {
+                duration: 1000,
+                easingFunction: 'easeInOutQuad'
+            }
+        });
+        network.selectNodes([node.id]);
+        loadNodeDetails(node.id);
+    } else {
+        console.error('Node not found:', hostname);
+    }
+}
+
+// Focus on an edge by ID
+function focusOnEdge(edgeId) {
+    const edge = allEdges.find(e => e.id === edgeId);
+    if (edge) {
+        network.fit({
+            nodes: [edge.from, edge.to],
+            animation: {
+                duration: 1000,
+                easingFunction: 'easeInOutQuad'
+            }
+        });
+        network.selectEdges([edgeId]);
+        loadEdgeDetails(edgeId);
+    } else {
+        console.error('Edge not found:', edgeId);
+    }
+}
+
+// Context menu handling
+let contextMenuTarget = null;
+let contextMenuType = null;
+
+function showContextMenu(event, nodeId, edgeId) {
+    event.preventDefault();
+    
+    const menu = document.getElementById('contextMenu');
+    contextMenuTarget = nodeId || edgeId;
+    contextMenuType = nodeId ? 'node' : 'edge';
+    
+    // Build menu content based on type
+    let menuHTML = '';
+   
+    if (contextMenuType === 'node') {
+        // Node context menu
+        menuHTML = `
+            <div class="context-menu-item" onclick="contextMenuAction('focus')">
+                <span>🎯</span> Focus on this
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" onclick="contextMenuAction('start')">
+                <span>🏁</span> Start from here
+            </div>
+            <div class="context-menu-item" onclick="contextMenuAction('end')">
+                <span>🏁</span> End here
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item danger" onclick="contextMenuAction('delete')">
+                <span>🗑️</span> Delete from database
+            </div>
+        `;
+    } else {
+        // Edge context menu
+        menuHTML = `
+            <div class="context-menu-item" onclick="contextMenuAction('focus')">
+                <span>🎯</span> Focus on this
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item danger" onclick="contextMenuAction('delete')">
+                <span>🗑️</span> Delete from database
+            </div>
+        `;
+    }
+    
+    menu.innerHTML = menuHTML;
+    if (contextMenuType === 'node') {
+        // Node context menu
+        menuHTML = `
+            <div class="context-menu-item" onclick="contextMenuAction('focus')">
+                <span>🎯</span> Focus on this
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" onclick="contextMenuAction('start')">
+                <span>🏁</span> Start from here
+            </div>
+            <div class="context-menu-item" onclick="contextMenuAction('end')">
+                <span>🏁</span> End here
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item danger" onclick="contextMenuAction('delete')">
+                <span>🗑️</span> Delete from database
+            </div>
+        `;
+    } else {
+        // Edge context menu
+        menuHTML = `
+            <div class="context-menu-item" onclick="contextMenuAction('focus')">
+                <span>🎯</span> Focus on this
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item danger" onclick="contextMenuAction('delete')">
+                <span>🗑️</span> Delete from database
+            </div>
+        `;
+    }
+    
+    menu.innerHTML = menuHTML;
+    menu.style.display = 'block';
+    menu.style.left = event.pageX + 'px';
+    menu.style.top = event.pageY + 'px';
+}
+
+function hideContextMenu() {
+    const menu = document.getElementById('contextMenu');
+    menu.style.display = 'none';
+    contextMenuTarget = null;
+    contextMenuType = null;
+}
+
+function contextMenuAction(action) {
+    // Store target info before hiding menu
+    const target = contextMenuTarget;
+    const type = contextMenuType;
+    
+    hideContextMenu();
+    
+    if (!target) {
+        console.log('No context menu target');
+        return;
+    }
+    
+    console.log('Context menu action:', action, 'for', type, target);
+    
+    switch(action) {
+        case 'focus':
+            if (type === 'node') {
+                console.log('Focusing on node:', target);
+                network.focus(target, {
+                    scale: 1.5,
+                    animation: {
+                        duration: 1000,
+                        easingFunction: 'easeInOutQuad'
+                    }
+                });
+                network.selectNodes([target]);
+            } else if (type === 'edge') {
+                console.log('Focusing on edge:', target);
+                // Get edge to find connected nodes
+                const edge = allEdges.find(e => e.id === target);
+                if (edge) {
+                    network.fit({
+                        nodes: [edge.from, edge.to],
+                        animation: {
+                            duration: 1000,
+                            easingFunction: 'easeInOutQuad'
+                        }
+                    });
+                    network.selectEdges([target]);
+                }
+            }
+            break;
+            
+        case 'start':
+            if (type === 'node') {
+                console.log('Setting start node:', target);
+                const node = allNodes.find(n => n.id === target);
+                if (node) {
+                    document.getElementById('startNode').value = node.hostname;
+                    document.getElementById('startNode').focus();
+                    console.log('Set startNode to:', node.hostname);
+                }
+            }
+            break;
+            
+        case 'end':
+            if (type === 'node') {
+                console.log('Setting end node:', target);
+                const node = allNodes.find(n => n.id === target);
+                if (node) {
+                    document.getElementById('endNode').value = node.hostname;
+                    document.getElementById('endNode').focus();
+                    console.log('Set endNode to:', node.hostname);
+                }
+            }
+            break;
+            
+        case 'delete':
+            if (confirm(`Are you sure you want to delete this ${type} from the database? This action cannot be undone.`)) {
+                deleteFromDatabase(type, target);
+            }
+            break;
+            
+        default:
+            console.log('Unknown action:', action);
+    }
+}
+
+// Delete node or edge from database
+function deleteFromDatabase(type, id) {
+    const endpoint = type === 'node' ? `/api/node/${id}` : `/api/edge/${id}`;
+    
+    fetch(endpoint, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`${type.charAt(0).toUpperCase() + type.slice(1)} deleted successfully!`);
+            // Reload the graph
+            loadGraph();
+        } else {
+            alert(`Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert(`Failed to delete ${type}: ${error.message}`);
+    });
+}
+
+// Clean entire database
+function cleanDatabase() {
+    if (!confirm('⚠️ WARNING: This will delete ALL nodes and relationships from the database. This action cannot be undone. Are you sure?')) {
+        return;
+    }
+    
+    if (!confirm('Really sure? All your SSH mapping data will be permanently deleted.')) {
+        return;
+    }
+    
+    fetch('/api/clean-database', {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Database cleaned successfully! Deleted ${data.nodes_deleted} nodes and ${data.relationships_deleted} relationships.`);
+            // Reload the graph (should be empty)
+            loadGraph();
+        } else {
+            alert(`Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        alert(`Failed to clean database: ${error.message}`);
+    });
 }
 
 // Toggle collapsible sections

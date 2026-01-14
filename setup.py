@@ -25,6 +25,10 @@ setup(
             "sshmap=SSHMAP:main",
             # Exposes the execute CLI as `sshmap-execute`
             "sshmap-execute=sshmap_execute:main",
+            # Exposes the web interface as `sshmap-web`
+            "sshmap-web=sshmap_web:main",
+            # Exposes the CLI as `sshmap-cli`
+            "sshmap-cli=sshmap_cli:main",
         ]
     },
 )

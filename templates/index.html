@@ -41,6 +41,82 @@
             margin-left: -320px;
         }
 
+        /* Floating Sidebar Toggle Buttons */
+        .floating-toggle {
+            position: fixed;
+            z-index: 1000;
+            background: #6a7cf6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 18px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .floating-toggle.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .floating-toggle:hover {
+            background: #5568e3;
+            transform: scale(1.1);
+        }
+
+        .floating-toggle-left {
+            left: 10px;
+            top: 10px;
+        }
+
+        .floating-toggle-right {
+            right: 10px;
+            top: 10px;
+        }
+
+        /* Context Menu */
+        .context-menu {
+            position: absolute;
+            background: #1e1f22;
+            border: 1px solid #3a3c41;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            min-width: 180px;
+            padding: 6px 0;
+            display: none;
+        }
+
+        .context-menu-item {
+            padding: 10px 16px;
+            color: #e0e0e0;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+
+        .context-menu-item:hover {
+            background: #2b2d31;
+        }
+
+        .context-menu-item.danger:hover {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .context-menu-divider {
+            height: 1px;
+            background: #3a3c41;
+            margin: 6px 0;
+        }
+
         /* Right Sidebar */
         .right-sidebar {
             width: 380px;
@@ -880,6 +956,14 @@
                 </div>
             </div>
 
+            <!-- Database Management -->
+            <div class="sidebar-section">
+                <div class="section-header">🗑️ Database</div>
+                <button class="btn btn-secondary" onclick="cleanDatabase()" style="width: 100%; margin-top: 10px;">
+                    🧹 Clean Database
+                </button>
+            </div>
+
             <!-- Stats Section -->
             <div class="sidebar-section">
                 <div class="section-header">📊 Statistics</div>
@@ -936,6 +1020,24 @@
                     Use the path finder to discover routes between hosts.
                 </p>
             </div>
+        </div>
+    </div>
+
+    <!-- Floating Toggle Buttons -->
+    <button class="floating-toggle floating-toggle-left" id="floatingLeftToggle" onclick="toggleSidebar('left')" title="Show sidebar">☰</button>
+    <button class="floating-toggle floating-toggle-right" id="floatingRightToggle" onclick="toggleSidebar('right')" title="Show details">📋</button>
+
+    <!-- Context Menu -->
+    <div id="contextMenu" class="context-menu">
+        <div class="context-menu-item" onclick="contextMenuAction('focus')">
+            <span>🎯</span> Focus on this
+        </div>
+        <div class="context-menu-item" onclick="contextMenuAction('path')">
+            <span>🔍</span> Find paths
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item danger" onclick="contextMenuAction('delete')">
+            <span>🗑️</span> Delete from database
         </div>
     </div>
 
