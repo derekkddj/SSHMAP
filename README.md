@@ -65,6 +65,7 @@ options:
 - Batched database writes for optimal performance with thousands of connection attempts
 - Start scanning from any discovered remote host with `--start-from` option
 - **Web-based graph visualization interface** - Explore your SSH network topology with an intuitive web UI
+- **Modular post-exploitation tool** - Run automated post-exploitation modules on discovered hosts (credential harvesting, system info, LinPEAS)
 
 ## Screenshots
 Attacking just one machine, and using it as a jump host:
@@ -397,12 +398,101 @@ options:
 
 ```
 
+### Use the Post-Exploitation Tool:
+
+SSHMAP includes `sshmap-post`, a modular post-exploitation tool that runs on remote hosts discovered by the main scanner. It operates independently and does not interfere with the scanning process.
+
+**Available Modules:**
+- **credential_harvester** - Searches for credentials in shell history, SSH keys, config files (.netrc, .my.cnf, etc.), and common credential locations
+- **system_info** - Gathers comprehensive system information (OS, network, users, processes, packages, etc.)
+- **linpeas** - Downloads and executes LinPEAS for privilege escalation enumeration
+
+**List available modules:**
+```bash
+$ sshmap-post --list
+```
+
+**Run a specific module on a single host:**
+```bash
+$ sshmap-post --hostname machine2_useasjumphost --module credential_harvester
+```
+
+**Run all modules on a single host:**
+```bash
+$ sshmap-post --hostname machine2_useasjumphost --all-modules
+```
+
+**Run a specific module on all discovered hosts:**
+```bash
+$ sshmap-post --all --module system_info
+```
+
+**Run all modules on all discovered hosts:**
+```bash
+$ sshmap-post --all --all-modules
+```
+
+**Options:**
+```bash
+usage: sshmap_post.py [-h] [--hostname HOSTNAME] [--all] [--module MODULE] 
+                      [--all-modules] [--list] [--credentialspath CREDENTIALSPATH] 
+                      [--output OUTPUT] [--debug] [--verbose]
+
+options:
+  --hostname HOSTNAME   Target hostname to run post-exploitation on
+  --all                 Run on all reachable hosts in the graph database
+  --module MODULE       Specific module to run (use --list to see available modules)
+  --all-modules         Run all available post-exploitation modules
+  --list                List all available post-exploitation modules and exit
+  --credentialspath CREDENTIALSPATH
+                        Path to CSV credentials file (default: wordlists/credentials.csv)
+  --output OUTPUT       Base output directory for results (default: output)
+  --debug               Enable debug level logging
+  --verbose             Enable verbose output
+```
+
+**Output:**
+All module results are saved to timestamped directories under `output/post_exploitation_<timestamp>/`:
+- Credential files: `<hostname>_home_.bash_history`, `<hostname>_home_.ssh_config`, etc.
+- System info: `<hostname>_system_info.txt`
+- LinPEAS output: `<hostname>_linpeas.txt`
+
+**Creating Custom Modules:**
+The post-exploitation system is modular and extensible. To create a new module:
+
+1. Create a new Python file in `modules/post_exploitation/modules/`
+2. Inherit from `BasePostExploitationModule`
+3. Implement the required properties (`name`, `description`) and `execute()` method
+4. The module will be automatically discovered and registered
+
+Example module structure:
+```python
+from modules.post_exploitation.base_module import BasePostExploitationModule
+
+class MyCustomModule(BasePostExploitationModule):
+    @property
+    def name(self) -> str:
+        return "my_module"
+    
+    @property
+    def description(self) -> str:
+        return "Description of what my module does"
+    
+    async def execute(self, ssh_session, output_dir: str) -> Dict[str, Any]:
+        # Your module logic here
+        hostname = await ssh_session.get_remote_hostname()
+        output = await ssh_session.exec_command("your_command")
+        # Save results and return status
+        return {"success": True, "hostname": hostname, "data": output, "error": None}
+```
+
 ### Project Structure
 ```bash
 SSHMAP/
 ├── SSHMAP.py             # Main program to scan the network
 ├── sshmap_cli.py         # Simple CLI to find paths in the Neo4j database
 ├── sshmap_execute.py     # Simple CLI to execute commands in targets, using SSHSessionManager
+├── sshmap_post.py        # Post-exploitation tool with modular system
 ├── sshmap_web.py         # Web interface launcher
 ├── web_app.py            # Flask web application with REST API
 ├── setup.py              # Package configuration and CLI entry points
@@ -421,6 +511,14 @@ SSHMAP/
 │   ├── SSHSessionManager.py # Manager of SSHSessions (create, save, and reuse)
 │   ├── utils.py          # Utility functions
 │   ├── attempt_store.py  # Connection attempt tracking (SQLite)
+│   ├── post_exploitation/ # Post-exploitation module system
+│   │   ├── __init__.py
+│   │   ├── base_module.py     # Base class for post-exploitation modules
+│   │   ├── module_registry.py # Automatic module discovery and loading
+│   │   └── modules/           # Post-exploitation modules
+│   │       ├── credential_harvester.py # Credential harvesting module
+│   │       ├── system_info.py         # System information gathering
+│   │       └── linpeas.py             # LinPEAS execution module
 │   └── helpers/          # Helper modules
 │       ├── AsyncRandomQueue.py
 │       └── logger.py
