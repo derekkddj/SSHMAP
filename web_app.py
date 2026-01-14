@@ -18,13 +18,36 @@ import html
 import asyncio
 import subprocess
 import os
+import sys
 from datetime import datetime
 
 # Determine the correct paths for templates and static files
-# When installed as a package, use the package directory
-_package_dir = os.path.dirname(os.path.abspath(__file__))
-_template_folder = os.path.join(_package_dir, 'templates')
-_static_folder = os.path.join(_package_dir, 'static')
+# Try multiple locations to find the files
+def find_resource_dir(dirname):
+    """Find the directory containing web resources (templates/static)"""
+    # Try current directory (development)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(current_dir, dirname)
+    if os.path.exists(path):
+        return path
+    
+    # Try sys.prefix (pipx installation)
+    path = os.path.join(sys.prefix, 'sshmap', dirname)
+    if os.path.exists(path):
+        return path
+    
+    # Try site-packages location
+    import site
+    for site_dir in site.getsitepackages() + [site.getusersitepackages()]:
+        path = os.path.join(site_dir, dirname)
+        if os.path.exists(path):
+            return path
+    
+    # Fallback to current directory
+    return os.path.join(current_dir, dirname)
+
+_template_folder = find_resource_dir('templates')
+_static_folder = find_resource_dir('static')
 
 app = Flask(__name__, 
             template_folder=_template_folder,

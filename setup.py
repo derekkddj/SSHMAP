@@ -1,5 +1,6 @@
 # setup.py
 from setuptools import setup, find_packages
+import os
 
 setup(
     name="sshmap",
@@ -12,6 +13,11 @@ setup(
     package_data={
         '': ['templates/*.html', 'static/css/*.css', 'static/js/*.js'],
     },
+    data_files=[
+        ('sshmap/templates', ['templates/index.html']),
+        ('sshmap/static/css', ['static/css/style.css']),
+        ('sshmap/static/js', ['static/js/app.js']),
+    ],
     # Runtime dependencies for the CLI
     install_requires=[
         "neo4j",
