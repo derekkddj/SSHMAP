@@ -20,7 +20,15 @@ import subprocess
 import os
 from datetime import datetime
 
-app = Flask(__name__)
+# Determine the correct paths for templates and static files
+# When installed as a package, use the package directory
+_package_dir = os.path.dirname(os.path.abspath(__file__))
+_template_folder = os.path.join(_package_dir, 'templates')
+_static_folder = os.path.join(_package_dir, 'static')
+
+app = Flask(__name__, 
+            template_folder=_template_folder,
+            static_folder=_static_folder)
 
 # Initialize Neo4j connection
 db = GraphDB(
