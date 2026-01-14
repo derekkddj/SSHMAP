@@ -4,6 +4,15 @@ let nodes = new vis.DataSet([]);
 let edges = new vis.DataSet([]);
 let allNodes = [];
 let allEdges = [];
+let currentLayout = 'force';
+let isPathView = false;
+let filterState = {
+    users: [],
+    methods: [],
+    minConnections: 0
+};
+let uniqueUsers = new Set();
+let uniqueMethods = new Set();
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -21,62 +30,7 @@ function initNetwork() {
         edges: edges
     };
     
-    const options = {
-        nodes: {
-            shape: 'dot',
-            size: 20,
-            font: {
-                size: 14,
-                face: 'Tahoma'
-            },
-            borderWidth: 2,
-            borderWidthSelected: 4,
-            color: {
-                border: '#667eea',
-                background: '#97a9f7',
-                highlight: {
-                    border: '#764ba2',
-                    background: '#a67ec1'
-                }
-            }
-        },
-        edges: {
-            width: 2,
-            color: {
-                color: '#848484',
-                highlight: '#667eea'
-            },
-            arrows: {
-                to: {
-                    enabled: true,
-                    scaleFactor: 0.5
-                }
-            },
-            smooth: {
-                type: 'cubicBezier',
-                forceDirection: 'horizontal',
-                roundness: 0.4
-            }
-        },
-        physics: {
-            stabilization: {
-                iterations: 200
-            },
-            barnesHut: {
-                gravitationalConstant: -30000,
-                centralGravity: 0.3,
-                springLength: 150,
-                springConstant: 0.04
-            }
-        },
-        interaction: {
-            hover: true,
-            tooltipDelay: 100,
-            navigationButtons: true,
-            keyboard: true
-        }
-    };
-    
+    const options = getLayoutOptions(currentLayout);
     network = new vis.Network(container, data, options);
     
     // Event listeners for node/edge selection
@@ -103,9 +57,213 @@ function initNetwork() {
     });
 }
 
+// Get layout options based on selected layout type
+function getLayoutOptions(layoutType) {
+    const baseOptions = {
+        nodes: {
+            shape: 'dot',
+            size: 35,
+            font: {
+                size: 14,
+                face: 'Arial',
+                color: '#ffffff',
+                bold: { enabled: true },
+                strokeWidth: 0
+            },
+            borderWidth: 3,
+            borderWidthSelected: 4,
+            color: {
+                border: '#6a7cf6',
+                background: '#6a7cf6',
+                highlight: {
+                    border: '#dc2626',
+                    background: '#ef4444'
+                },
+                hover: {
+                    border: '#fbbf24',
+                    background: '#fbbf24'
+                }
+            },
+            shadow: false
+        },
+        edges: {
+            width: 2,
+            color: {
+                color: '#6b7280',
+                highlight: '#dc2626',
+                hover: '#fbbf24'
+            },
+            arrows: {
+                to: {
+                    enabled: true,
+                    scaleFactor: 0.8,
+                    type: 'arrow'
+                }
+            },
+            smooth: {
+                enabled: true,
+                type: 'dynamic',
+                roundness: 0.5
+            },
+            shadow: false,
+            font: {
+                size: 11,
+                color: '#d1d5db',
+                background: 'rgba(30, 31, 34, 0.8)',
+                strokeWidth: 0,
+                align: 'horizontal'
+            },
+            scaling: {
+                min: 1,
+                max: 4
+            }
+        },
+        interaction: {
+            hover: true,
+            tooltipDelay: 50,
+            navigationButtons: true,
+            keyboard: true,
+            multiselect: true,
+            selectable: true
+        },
+        configure: {
+            enabled: false
+        }
+    };
+
+    // Layout-specific configurations
+    switch(layoutType) {
+        case 'hierarchical-lr':
+            return {
+                ...baseOptions,
+                layout: {
+                    hierarchical: {
+                        enabled: true,
+                        direction: 'LR',
+                        sortMethod: 'directed',
+                        levelSeparation: 250,
+                        nodeSpacing: 180,
+                        treeSpacing: 250,
+                        blockShifting: true,
+                        edgeMinimization: true,
+                        parentCentralization: true
+                    }
+                },
+                physics: {
+                    enabled: true,
+                    hierarchicalRepulsion: {
+                        centralGravity: 0.0,
+                        springLength: 200,
+                        springConstant: 0.01,
+                        nodeDistance: 180,
+                        damping: 0.09
+                    },
+                    stabilization: {
+                        enabled: true,
+                        iterations: 200
+                    },
+                    solver: 'hierarchicalRepulsion'
+                },
+                interaction: {
+                    ...baseOptions.interaction,
+                    dragNodes: true,
+                    dragView: true
+                }
+            };
+        
+        case 'hierarchical-tb':
+            return {
+                ...baseOptions,
+                layout: {
+                    hierarchical: {
+                        enabled: true,
+                        direction: 'UD',
+                        sortMethod: 'directed',
+                        levelSeparation: 200,
+                        nodeSpacing: 220,
+                        treeSpacing: 250,
+                        blockShifting: true,
+                        edgeMinimization: true,
+                        parentCentralization: true
+                    }
+                },
+                physics: {
+                    enabled: true,
+                    hierarchicalRepulsion: {
+                        centralGravity: 0.0,
+                        springLength: 200,
+                        springConstant: 0.01,
+                        nodeDistance: 200,
+                        damping: 0.09
+                    },
+                    stabilization: {
+                        enabled: true,
+                        iterations: 200
+                    },
+                    solver: 'hierarchicalRepulsion'
+                },
+                interaction: {
+                    ...baseOptions.interaction,
+                    dragNodes: true,
+                    dragView: true
+                }
+            };
+        
+        case 'circular':
+            return {
+                ...baseOptions,
+                layout: {
+                    randomSeed: 2
+                },
+                physics: {
+                    enabled: true,
+                    stabilization: { 
+                        enabled: true,
+                        iterations: 500 
+                    },
+                    solver: 'barnesHut',
+                    barnesHut: {
+                        gravitationalConstant: -10000,
+                        centralGravity: 0.5,
+                        springLength: 200,
+                        springConstant: 0.05,
+                        damping: 0.2,
+                        avoidOverlap: 0.5
+                    }
+                }
+            };
+        
+        case 'force':
+        default:
+            return {
+                ...baseOptions,
+                layout: {
+                    randomSeed: undefined
+                },
+                physics: {
+                    enabled: true,
+                    stabilization: {
+                        enabled: true,
+                        iterations: 400
+                    },
+                    solver: 'barnesHut',
+                    barnesHut: {
+                        gravitationalConstant: -30000,
+                        centralGravity: 0.3,
+                        springLength: 150,
+                        springConstant: 0.04,
+                        damping: 0.2,
+                        avoidOverlap: 0.2
+                    }
+                }
+            };
+    }
+}
+
 // Load the complete graph from the API
 function loadGraph() {
     showLoading(true);
+    isPathView = false;
     
     fetch('/api/graph')
         .then(response => response.json())
@@ -118,12 +276,20 @@ function loadGraph() {
             allNodes = data.nodes;
             allEdges = data.edges;
             
-            nodes.clear();
-            edges.clear();
-            nodes.add(data.nodes);
-            edges.add(data.edges);
+            // Collect unique users and methods for filters
+            uniqueUsers.clear();
+            uniqueMethods.clear();
+            data.edges.forEach(edge => {
+                uniqueUsers.add(edge.user);
+                uniqueMethods.add(edge.method);
+            });
             
-            updateStats(data.nodes.length, data.edges.length);
+            // Initialize filters
+            populateFilterOptions();
+            
+            // Apply current filters
+            applyFilters();
+            
             showLoading(false);
             
             // Fit the network to show all nodes
@@ -266,6 +432,15 @@ function displayNodeDetails(data) {
                 <span>${data.interfaces.length > 0 ? data.interfaces.map(i => escapeHtml(i)).join('<br>') : 'N/A'}</span>
             </div>
         </div>
+        
+        <div class="info-section">
+            <h3>⚡ Execute Command</h3>
+            <div class="command-exec-container">
+                <input type="text" id="commandInput" placeholder="Enter command (e.g., ls -la, whoami)" class="command-input" />
+                <button class="btn btn-primary" onclick="executeCommand('${escapeHtml(data.hostname)}')" style="width: 100%; margin-top: 10px;">🚀 Execute</button>
+                <div id="commandOutput" class="command-output" style="display: none;"></div>
+            </div>
+        </div>
     `;
     
     if (data.outgoing_connections && data.outgoing_connections.length > 0) {
@@ -389,6 +564,8 @@ function findPath() {
         return;
     }
     
+    showLoading(true);
+    
     fetch('/api/path', {
         method: 'POST',
         headers: {
@@ -402,6 +579,8 @@ function findPath() {
     })
     .then(response => response.json())
     .then(data => {
+        showLoading(false);
+        
         if (data.error) {
             showError('Error finding path: ' + data.error);
             return;
@@ -409,12 +588,13 @@ function findPath() {
         
         if (data.paths && data.paths.length > 0) {
             displayPath(data.paths[0]);
-            highlightPath(data.paths[0]);
+            showOnlyPath(data.paths[0]);
         } else {
             showError('No path found between the specified nodes');
         }
     })
     .catch(error => {
+        showLoading(false);
         showError('Failed to find path: ' + error.message);
     });
 }
@@ -426,6 +606,9 @@ function displayPath(path) {
     let html = `
         <div class="info-section">
             <h3>🛤️ Path Found (${path.length} hops)</h3>
+            <button class="btn btn-secondary" onclick="restoreFullGraph()" style="width: 100%; margin-bottom: 15px;">
+                ↩️ Show Full Graph
+            </button>
             <div class="path-result">
     `;
     
@@ -449,54 +632,23 @@ function displayPath(path) {
     container.innerHTML = html;
 }
 
-// Highlight path in the graph
-function highlightPath(path) {
-    // Reset all nodes and edges to default colors
-    allNodes.forEach(node => {
-        nodes.update({
-            id: node.id,
-            color: {
-                border: '#667eea',
-                background: '#97a9f7'
-            }
-        });
-    });
-
-    allEdges.forEach(edge => {
-        edges.update({
-            id: edge.id,
-            color: {
-                color: '#848484'
-            },
-            width: 2
-        });
-    });
-
+// Show only the path in the graph
+function showOnlyPath(path) {
+    isPathView = true;
+    
     // Collect all nodes and edges in the path
     const pathNodeNames = new Set();
-
     path.forEach(step => {
         pathNodeNames.add(step.from);
         pathNodeNames.add(step.to);
     });
 
-    // Find node IDs
-    const pathNodeIds = allNodes
-        .filter(n => pathNodeNames.has(n.hostname))
-        .map(n => n.id);
-
-    // Highlight nodes in path
-    pathNodeIds.forEach(nodeId => {
-        nodes.update({
-            id: nodeId,
-            color: {
-                border: '#4caf50',
-                background: '#81c784'
-            }
-        });
-    });
-
-    // Find and highlight edges in path
+    // Filter nodes that are in the path
+    const pathNodes = allNodes.filter(n => pathNodeNames.has(n.hostname));
+    const pathNodeIds = pathNodes.map(n => n.id);
+    
+    // Find matching edges in the path
+    const pathEdges = [];
     path.forEach(step => {
         const matchingEdges = allEdges.filter(e =>
             e.from_hostname === step.from &&
@@ -505,26 +657,303 @@ function highlightPath(path) {
             e.ip === step.ip &&
             e.port === step.port
         );
-
-        matchingEdges.forEach(edge => {
-            edges.update({
-                id: edge.id,
-                color: {
-                    color: '#4caf50'
-                },
-                width: 4
-            });
-        });
+        pathEdges.push(...matchingEdges);
     });
+
+    // Clear and show only path nodes/edges
+    nodes.clear();
+    edges.clear();
+    
+    // Add nodes with green path colors (BloodHound style)
+    const highlightedNodes = pathNodes.map(node => ({
+        ...node,
+        color: {
+            border: '#22c55e',
+            background: '#22c55e'
+        },
+        size: 40
+    }));
+    
+    // Add edges with green colors and labels
+    const highlightedEdges = pathEdges.map(edge => ({
+        ...edge,
+        color: {
+            color: '#22c55e'
+        },
+        width: 3,
+        label: edge.user
+    }));
+    
+    nodes.add(highlightedNodes);
+    edges.add(highlightedEdges);
+    
+    updateStats(highlightedNodes.length, highlightedEdges.length);
 
     // Focus on the path
-    network.fit({
-        nodes: pathNodeIds,
-        animation: {
-            duration: 1000,
-            easingFunction: 'easeInOutQuad'
+    setTimeout(() => {
+        network.fit({
+            animation: {
+                duration: 1000,
+                easingFunction: 'easeInOutQuad'
+            }
+        });
+    }, 100);
+}
+
+// Change graph layout
+function changeLayout(layoutType) {
+    currentLayout = layoutType;
+    
+    // Show loading
+    showLoading(true);
+    
+    // Get current node and edge data
+    const currentNodes = nodes.get();
+    const currentEdges = edges.get();
+    
+    // Destroy and recreate network with new layout
+    if (network) {
+        network.destroy();
+    }
+    
+    // Reinitialize network with new layout
+    const container = document.getElementById('network');
+    const data = {
+        nodes: nodes,
+        edges: edges
+    };
+    
+    const options = getLayoutOptions(layoutType);
+    network = new vis.Network(container, data, options);
+    
+    // Reattach event listeners
+    network.on('selectNode', function(params) {
+        if (params.nodes.length > 0) {
+            const nodeId = params.nodes[0];
+            loadNodeDetails(nodeId);
         }
     });
+    
+    network.on('selectEdge', function(params) {
+        if (params.edges.length > 0) {
+            const edgeId = params.edges[0];
+            loadEdgeDetails(edgeId);
+        }
+    });
+    
+    network.on('deselectNode', function() {
+        showDefaultInfo();
+    });
+    
+    network.on('deselectEdge', function() {
+        showDefaultInfo();
+    });
+    
+    // Update UI to show active layout
+    document.querySelectorAll('.layout-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`[data-layout="${layoutType}"]`).classList.add('active');
+    
+    // Wait for stabilization then fit and hide loading
+    network.once('stabilizationIterationsDone', function() {
+        setTimeout(() => {
+            network.fit({
+                animation: {
+                    duration: 500,
+                    easingFunction: 'easeInOutQuad'
+                }
+            });
+            showLoading(false);
+        }, 100);
+    });
+    
+    // Fallback in case stabilization doesn't trigger
+    setTimeout(() => {
+        showLoading(false);
+        network.fit({
+            animation: {
+                duration: 500,
+                easingFunction: 'easeInOutQuad'
+            }
+        });
+    }, 3000);
+}
+
+// Restore full graph view
+function restoreFullGraph() {
+    isPathView = false;
+    filterState = {
+        users: [],
+        methods: [],
+        minConnections: 0
+    };
+    
+    // Reset filter UI
+    document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = true);
+    document.getElementById('minConnectionsSlider').value = 0;
+    document.getElementById('minConnectionsValue').textContent = '0';
+    
+    applyFilters();
+    showDefaultInfo();
+}
+
+// Populate filter options
+function populateFilterOptions() {
+    const userFilterDiv = document.getElementById('userFilters');
+    const methodFilterDiv = document.getElementById('methodFilters');
+    
+    // User filters
+    userFilterDiv.innerHTML = '';
+    Array.from(uniqueUsers).sort().forEach(user => {
+        const label = document.createElement('label');
+        label.className = 'filter-option';
+        label.innerHTML = `
+            <input type="checkbox" class="filter-checkbox" data-type="user" value="${escapeHtml(user)}" checked>
+            <span>${escapeHtml(user)}</span>
+        `;
+        userFilterDiv.appendChild(label);
+    });
+    
+    // Method filters
+    methodFilterDiv.innerHTML = '';
+    Array.from(uniqueMethods).sort().forEach(method => {
+        const label = document.createElement('label');
+        label.className = 'filter-option';
+        label.innerHTML = `
+            <input type="checkbox" class="filter-checkbox" data-type="method" value="${escapeHtml(method)}" checked>
+            <span>${escapeHtml(method)}</span>
+        `;
+        methodFilterDiv.appendChild(label);
+    });
+    
+    // Add event listeners
+    document.querySelectorAll('.filter-checkbox').forEach(cb => {
+        cb.addEventListener('change', onFilterChange);
+    });
+}
+
+// Handle filter changes
+function onFilterChange() {
+    // Update filter state
+    filterState.users = Array.from(document.querySelectorAll('.filter-checkbox[data-type="user"]:checked')).map(cb => cb.value);
+    filterState.methods = Array.from(document.querySelectorAll('.filter-checkbox[data-type="method"]:checked')).map(cb => cb.value);
+    filterState.minConnections = parseInt(document.getElementById('minConnectionsSlider').value) || 0;
+    
+    applyFilters();
+}
+
+// Apply filters to the graph
+function applyFilters() {
+    if (isPathView) return; // Don't apply filters in path view
+    
+    // Filter edges
+    let filteredEdges = allEdges;
+    if (filterState.users.length > 0) {
+        filteredEdges = filteredEdges.filter(e => filterState.users.includes(e.user));
+    }
+    if (filterState.methods.length > 0) {
+        filteredEdges = filteredEdges.filter(e => filterState.methods.includes(e.method));
+    }
+    
+    // Get nodes that have edges
+    const connectedNodeIds = new Set();
+    const nodeConnectionCount = {};
+    const incomingCount = {};
+    const outgoingCount = {};
+    
+    filteredEdges.forEach(edge => {
+        connectedNodeIds.add(edge.from);
+        connectedNodeIds.add(edge.to);
+        nodeConnectionCount[edge.from] = (nodeConnectionCount[edge.from] || 0) + 1;
+        nodeConnectionCount[edge.to] = (nodeConnectionCount[edge.to] || 0) + 1;
+        outgoingCount[edge.from] = (outgoingCount[edge.from] || 0) + 1;
+        incomingCount[edge.to] = (incomingCount[edge.to] || 0) + 1;
+    });
+    
+    // Filter nodes by minimum connections
+    let filteredNodes = allNodes.filter(n => 
+        connectedNodeIds.has(n.id) && 
+        (nodeConnectionCount[n.id] || 0) >= filterState.minConnections
+    );
+    
+    // Apply BloodHound-style colors based on node role
+    filteredNodes = filteredNodes.map(node => {
+        const incoming = incomingCount[node.id] || 0;
+        const outgoing = outgoingCount[node.id] || 0;
+        
+        let color;
+        if (outgoing > 0 && incoming === 0) {
+            // Source nodes (only outgoing) - Green
+            color = { border: '#22c55e', background: '#22c55e' };
+        } else if (incoming > outgoing * 2) {
+            // High-value targets (more incoming) - Purple
+            color = { border: '#a855f7', background: '#a855f7' };
+        } else if (incoming > 0 && outgoing > 0) {
+            // Intermediate pivot nodes - Yellow
+            color = { border: '#fbbf24', background: '#fbbf24' };
+        } else {
+            // Default - Blue
+            color = { border: '#6a7cf6', background: '#6a7cf6' };
+        }
+        
+        return {
+            ...node,
+            color: color,
+            title: `${node.hostname}\nIPs: ${node.interfaces.join(', ')}\nIncoming: ${incoming}, Outgoing: ${outgoing}`
+        };
+    });
+    
+    // Filter edges to only include those between filtered nodes
+    const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+    filteredEdges = filteredEdges.filter(e => 
+        filteredNodeIds.has(e.from) && filteredNodeIds.has(e.to)
+    );
+    
+    // Add labels to edges for better visibility
+    filteredEdges = filteredEdges.map(edge => ({
+        ...edge,
+        label: `${edge.user}`,
+        title: `${edge.user}@${edge.ip}:${edge.port}\nMethod: ${edge.method}\nCreds: ${edge.creds}`
+    }));
+    
+    // Update graph
+    nodes.clear();
+    edges.clear();
+    nodes.add(filteredNodes);
+    edges.add(filteredEdges);
+    
+    updateStats(filteredNodes.length, filteredEdges.length);
+    
+    setTimeout(() => {
+        network.fit({
+            animation: {
+                duration: 500,
+                easingFunction: 'easeInOutQuad'
+            }
+        });
+    }, 100);
+}
+
+// Toggle filter panel
+function toggleFilters() {
+    const panel = document.getElementById('filterPanel');
+    const btn = document.querySelector('.filter-toggle-btn');
+    
+    if (panel.style.display === 'none' || !panel.style.display) {
+        panel.style.display = 'block';
+        btn.textContent = '✕ Close Filters';
+    } else {
+        panel.style.display = 'none';
+        btn.textContent = '⚙️ Filters';
+    }
+}
+
+// Update min connections filter
+function updateMinConnections(value) {
+    document.getElementById('minConnectionsValue').textContent = value;
+    filterState.minConnections = parseInt(value);
+    applyFilters();
 }
 
 // Show/hide loading indicator
@@ -550,13 +979,61 @@ function showError(message) {
     `;
 }
 
+// Execute command on target host
+function executeCommand(hostname) {
+    const commandInput = document.getElementById('commandInput');
+    const command = commandInput.value.trim();
+    const outputDiv = document.getElementById('commandOutput');
+    
+    if (!command) {
+        outputDiv.style.display = 'block';
+        outputDiv.innerHTML = '<div class="error">⚠️ Please enter a command</div>';
+        return;
+    }
+    
+    // Show loading state
+    outputDiv.style.display = 'block';
+    outputDiv.innerHTML = '<div class="loading"><div class="loading-spinner"></div>Executing command...</div>';
+    
+    fetch('/api/execute', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            hostname: hostname,
+            command: command
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            outputDiv.innerHTML = `
+                <div class="command-result-success">
+                    <strong>✓ Command executed successfully</strong><br>
+                    <small>User: ${escapeHtml(data.user)}</small><br>
+                    <small>Output saved to: ${escapeHtml(data.output_file)}</small>
+                </div>
+                <div class="command-output-text">
+                    <pre>${escapeHtml(data.output)}</pre>
+                </div>
+            `;
+        } else {
+            outputDiv.innerHTML = `<div class="error">❌ Error: ${escapeHtml(data.error)}</div>`;
+        }
+    })
+    .catch(error => {
+        outputDiv.innerHTML = `<div class="error">❌ Failed to execute command: ${escapeHtml(error.message)}</div>`;
+    });
+}
+
 // Show default information
 function showDefaultInfo() {
     const container = document.getElementById('detailsContainer');
     container.innerHTML = `
         <div class="info-section" style="margin-top: 20px;">
             <h3>ℹ️ Information</h3>
-            <p style="color: #666; font-size: 14px; line-height: 1.6;">
+            <p style="color: #9ca3af; font-size: 14px; line-height: 1.6;">
                 Click on a node to see its details and connections.<br><br>
                 Click on an edge to see connection details.<br><br>
                 Use the search bar to filter the graph.<br><br>
@@ -569,13 +1046,29 @@ function showDefaultInfo() {
 // Setup event listeners
 function setupEventListeners() {
     const searchInput = document.getElementById('search');
+    const searchResults = document.getElementById('searchResults');
     let searchTimeout = null;
     
     searchInput.addEventListener('input', function() {
         clearTimeout(searchTimeout);
+        const query = this.value;
+        
+        if (!query || query.trim() === '') {
+            searchResults.style.display = 'none';
+            performSearch('');
+            return;
+        }
+        
         searchTimeout = setTimeout(() => {
-            performSearch(this.value);
+            performSearchWithPopup(query);
         }, 300);
+    });
+    
+    // Close popup when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.style.display = 'none';
+        }
     });
     
     // Allow Enter key to trigger path finding
@@ -592,6 +1085,164 @@ function setupEventListeners() {
     });
 }
 
+// Search with popup results
+function performSearchWithPopup(query) {
+    fetch(`/api/search?q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showError('Search error: ' + data.error);
+                return;
+            }
+            
+            displaySearchPopup(data, query);
+            // Also perform the graph filtering
+            filterGraphBySearchResults(data);
+        })
+        .catch(error => {
+            showError('Search failed: ' + error.message);
+        });
+}
+
+// Display search results in popup
+function displaySearchPopup(data, query) {
+    const popup = document.getElementById('searchResults');
+    
+    if (data.nodes.length === 0 && data.edges.length === 0) {
+        popup.innerHTML = '<div class="search-no-results">No results found for "' + escapeHtml(query) + '"</div>';
+        popup.style.display = 'block';
+        return;
+    }
+    
+    let html = '';
+    
+    // Display nodes section
+    if (data.nodes.length > 0) {
+        html += '<div class="search-section">';
+        html += '<div class="search-section-title">🖥️ Nodes <span class="search-result-count">(' + data.nodes.length + ')</span></div>';
+        
+        data.nodes.forEach(node => {
+            const interfaces = node.interfaces && node.interfaces.length > 0 
+                ? node.interfaces.join(', ') 
+                : 'No IPs';
+            
+            html += `
+                <div class="search-result-item node-result" onclick="selectNodeFromSearch(${node.id})">
+                    <div class="search-result-primary">🖥️ ${escapeHtml(node.hostname)}</div>
+                    <div class="search-result-secondary">${escapeHtml(interfaces)}</div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+    }
+    
+    // Display edges section
+    if (data.edges.length > 0) {
+        html += '<div class="search-section">';
+        html += '<div class="search-section-title">🔗 Connections <span class="search-result-count">(' + data.edges.length + ')</span></div>';
+        
+        data.edges.forEach(edge => {
+            html += `
+                <div class="search-result-item edge-result" onclick="selectEdgeFromSearch(${edge.id})">
+                    <div class="search-result-primary">🔗 ${escapeHtml(edge.from_hostname)} → ${escapeHtml(edge.to_hostname)}</div>
+                    <div class="search-result-secondary">${escapeHtml(edge.user)}@${escapeHtml(edge.ip)}:${edge.port} (${escapeHtml(edge.method)})</div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+    }
+    
+    popup.innerHTML = html;
+    popup.style.display = 'block';
+}
+
+// Filter graph based on search results
+function filterGraphBySearchResults(data) {
+    // Get IDs of matching nodes and connected nodes
+    const matchingNodeIds = new Set(data.nodes.map(n => n.id));
+    const connectedNodeIds = new Set();
+    
+    // Add nodes that are connected to matching edges
+    data.edges.forEach(edge => {
+        connectedNodeIds.add(edge.from);
+        connectedNodeIds.add(edge.to);
+    });
+    
+    // Combine all relevant node IDs
+    const relevantNodeIds = new Set([...matchingNodeIds, ...connectedNodeIds]);
+    
+    // Filter nodes and edges to show
+    const filteredNodes = allNodes.filter(n => relevantNodeIds.has(n.id));
+    const filteredEdges = allEdges.filter(e => 
+        relevantNodeIds.has(e.from) && relevantNodeIds.has(e.to)
+    );
+    
+    nodes.clear();
+    edges.clear();
+    nodes.add(filteredNodes);
+    edges.add(filteredEdges);
+    
+    updateStats(filteredNodes.length, filteredEdges.length);
+    
+    // Highlight matching nodes
+    data.nodes.forEach(node => {
+        nodes.update({
+            id: node.id,
+            color: {
+                border: '#ffc107',
+                background: '#fff176'
+            }
+        });
+    });
+    
+    // Fit to show filtered results
+    setTimeout(() => {
+        network.fit({
+            animation: {
+                duration: 500,
+                easingFunction: 'easeInOutQuad'
+            }
+        });
+    }, 100);
+}
+
+// Select node from search popup
+function selectNodeFromSearch(nodeId) {
+    document.getElementById('searchResults').style.display = 'none';
+    network.selectNodes([nodeId]);
+    network.focus(nodeId, {
+        scale: 1.5,
+        animation: {
+            duration: 500,
+            easingFunction: 'easeInOutQuad'
+        }
+    });
+    loadNodeDetails(nodeId);
+}
+
+// Select edge from search popup
+function selectEdgeFromSearch(edgeId) {
+    document.getElementById('searchResults').style.display = 'none';
+    network.selectEdges([edgeId]);
+    
+    // Get the edge to find connected nodes
+    const edge = allEdges.find(e => e.id === edgeId);
+    if (edge) {
+        // Focus on the source node of the edge
+        network.focus(edge.from, {
+            scale: 1.5,
+            animation: {
+                duration: 500,
+                easingFunction: 'easeInOutQuad'
+            }
+        });
+    }
+    
+    loadEdgeDetails(edgeId);
+}
+
 // Utility function to escape HTML
 function escapeHtml(text) {
     const map = {
@@ -602,4 +1253,21 @@ function escapeHtml(text) {
         "'": '&#039;'
     };
     return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
+// Toggle sidebar visibility
+function toggleSidebar(side) {
+    if (side === 'left') {
+        const sidebar = document.getElementById('leftSidebar');
+        sidebar.classList.toggle('collapsed');
+    } else if (side === 'right') {
+        const sidebar = document.getElementById('rightSidebar');
+        sidebar.classList.toggle('collapsed');
+    }
+}
+
+// Toggle collapsible sections
+function toggleSection(header) {
+    const section = header.closest('.sidebar-section');
+    section.classList.toggle('collapsed');
 }

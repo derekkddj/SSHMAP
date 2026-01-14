@@ -23,6 +23,8 @@ setup(
         "console_scripts": [
             # Exposes the CLI as `sshmap`
             "sshmap=SSHMAP:main",
+            # Exposes the execute CLI as `sshmap-execute`
+            "sshmap-execute=sshmap_execute:main",
         ]
     },
 )

@@ -11,7 +11,14 @@ This application runs on localhost only and provides an intuitive GUI for:
 from flask import Flask, render_template, jsonify, request
 from modules.graphdb import GraphDB
 from modules.config import CONFIG
+from modules.credential_store import CredentialStore
+from modules.SSHSessionManager import SSHSessionManager
+from modules.logger import sshmap_logger
 import html
+import asyncio
+import subprocess
+import os
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -129,16 +136,16 @@ def search():
         with db.driver.session() as session:
             result = session.run("""
                 MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
-                WHERE toLower(a.hostname) CONTAINS $query
-                   OR toLower(b.hostname) CONTAINS $query
-                   OR toLower(r.user) CONTAINS $query
-                   OR toLower(r.ip) CONTAINS $query
-                   OR toLower(toString(r.port)) CONTAINS $query
+                WHERE toLower(a.hostname) CONTAINS $search_query
+                   OR toLower(b.hostname) CONTAINS $search_query
+                   OR toLower(r.user) CONTAINS $search_query
+                   OR toLower(r.ip) CONTAINS $search_query
+                   OR toLower(toString(r.port)) CONTAINS $search_query
                 RETURN id(a) AS from_id, id(b) AS to_id, id(r) AS edge_id,
                        a.hostname AS from_hostname, b.hostname AS to_hostname,
                        r.user AS user, r.method AS method, r.creds AS creds,
                        r.ip AS ip, r.port AS port
-            """, query=query)
+            """, search_query=query)
 
             for record in result:
                 matching_edges.append({
@@ -292,6 +299,133 @@ def get_hosts():
         return jsonify({'hostnames': hostnames})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/execute', methods=['POST'])
+def execute_command():
+    """
+    Execute a command on a target host.
+    Expects JSON: {"hostname": "target", "command": "ls -la"}
+    """
+    try:
+        data = request.json
+        hostname = data.get('hostname')
+        command = data.get('command')
+        
+        if not hostname or not command:
+            return jsonify({'error': 'hostname and command are required'}), 400
+        
+        # Run the command execution in a separate thread to avoid blocking
+        result = asyncio.run(execute_command_async(hostname, command))
+        
+        if result['success']:
+            return jsonify(result)
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+async def execute_command_async(hostname, command):
+    """
+    Async function to execute command on target host.
+    """
+    try:
+        # Get local hostname
+        try:
+            local_hostname = subprocess.run(
+                ["hostname"], capture_output=True, text=True, check=True
+            ).stdout.strip()
+            sshmap_logger.display(f"Local hostname: {local_hostname}")
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Failed to get local hostname: {str(e)}'
+            }
+        
+        # Initialize credential store
+        try:
+            credential_store = CredentialStore("wordlists/credentials.csv")
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Failed to load credentials: {str(e)}'
+            }
+        
+        # Create SSH session manager
+        ssh_session_manager = SSHSessionManager(
+            graphdb=db, 
+            credential_store=credential_store
+        )
+        
+        # Get SSH session
+        sshmap_logger.display(f"Attempting to establish SSH session to {hostname}...")
+        host_ssh = await ssh_session_manager.get_session(hostname, local_hostname)
+        
+        if not host_ssh:
+            return {
+                'success': False,
+                'error': f'Could not establish SSH session to {hostname}. The host may not be reachable or no valid credentials found.'
+            }
+        
+        # Verify the connection is actually established
+        if not await host_ssh.is_connected():
+            return {
+                'success': False,
+                'error': f'SSH session to {hostname} was created but connection is not active. The host may have disconnected.'
+            }
+        
+        sshmap_logger.display(f"SSH session established with {hostname} as {host_ssh.user}")
+        
+        # Execute the command
+        try:
+            output = await host_ssh.exec_command(command)
+        except ValueError as e:
+            return {
+                'success': False,
+                'error': f'Cannot execute command: {str(e)}'
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Command execution failed: {str(e)}'
+            }
+        
+        # Save output to file
+        currenttime = datetime.now().strftime('%Y%m%d_%H%M%S')
+        os.makedirs('output', exist_ok=True)
+        command_trimmed = command[:10].replace(" ", "_").replace("/", "_")
+        output_filename = f"output/{currenttime}_{hostname}_{command_trimmed}.txt"
+        
+        try:
+            with open(output_filename, 'w') as f:
+                f.write(f"Output from {hostname}:\n")
+                f.write(f"Executed command: {command}\n")
+                f.write(f"User: {host_ssh.user}\n\n")
+                f.write(output)
+        except Exception as e:
+            sshmap_logger.warning(f"Failed to save output to file: {e}")
+            # Continue anyway, at least return the output
+        
+        sshmap_logger.success(f"Command executed successfully on {hostname}")
+        
+        return {
+            'success': True,
+            'output': output,
+            'hostname': hostname,
+            'command': command,
+            'user': host_ssh.user,
+            'output_file': output_filename
+        }
+        
+    except Exception as e:
+        error_msg = f"Failed to execute command on {hostname}: {type(e).__name__} - {str(e)}"
+        sshmap_logger.error(error_msg)
+        return {
+            'success': False,
+            'error': error_msg
+        }
 
 
 if __name__ == '__main__':
