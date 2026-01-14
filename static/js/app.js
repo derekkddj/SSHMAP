@@ -451,65 +451,80 @@ function displayPath(path) {
 
 // Highlight path in the graph
 function highlightPath(path) {
-    // Reset all nodes and edges to default colors first
-    loadGraph();
-    
-    setTimeout(() => {
-        // Collect all nodes and edges in the path
-        const pathNodeNames = new Set();
-        const pathEdges = [];
-        
-        path.forEach(step => {
-            pathNodeNames.add(step.from);
-            pathNodeNames.add(step.to);
-        });
-        
-        // Find node IDs
-        const pathNodeIds = allNodes
-            .filter(n => pathNodeNames.has(n.hostname))
-            .map(n => n.id);
-        
-        // Highlight nodes in path
-        pathNodeIds.forEach(nodeId => {
-            nodes.update({
-                id: nodeId,
-                color: {
-                    border: '#4caf50',
-                    background: '#81c784'
-                }
-            });
-        });
-        
-        // Find and highlight edges in path
-        path.forEach(step => {
-            const matchingEdges = allEdges.filter(e => 
-                e.from_hostname === step.from && 
-                e.to_hostname === step.to &&
-                e.user === step.user &&
-                e.ip === step.ip &&
-                e.port === step.port
-            );
-            
-            matchingEdges.forEach(edge => {
-                edges.update({
-                    id: edge.id,
-                    color: {
-                        color: '#4caf50'
-                    },
-                    width: 4
-                });
-            });
-        });
-        
-        // Focus on the path
-        network.fit({
-            nodes: pathNodeIds,
-            animation: {
-                duration: 1000,
-                easingFunction: 'easeInOutQuad'
+    // Reset all nodes and edges to default colors
+    allNodes.forEach(node => {
+        nodes.update({
+            id: node.id,
+            color: {
+                border: '#667eea',
+                background: '#97a9f7'
             }
         });
-    }, 500);
+    });
+
+    allEdges.forEach(edge => {
+        edges.update({
+            id: edge.id,
+            color: {
+                color: '#848484'
+            },
+            width: 2
+        });
+    });
+
+    // Collect all nodes and edges in the path
+    const pathNodeNames = new Set();
+
+    path.forEach(step => {
+        pathNodeNames.add(step.from);
+        pathNodeNames.add(step.to);
+    });
+
+    // Find node IDs
+    const pathNodeIds = allNodes
+        .filter(n => pathNodeNames.has(n.hostname))
+        .map(n => n.id);
+
+    // Highlight nodes in path
+    pathNodeIds.forEach(nodeId => {
+        nodes.update({
+            id: nodeId,
+            color: {
+                border: '#4caf50',
+                background: '#81c784'
+            }
+        });
+    });
+
+    // Find and highlight edges in path
+    path.forEach(step => {
+        const matchingEdges = allEdges.filter(e =>
+            e.from_hostname === step.from &&
+            e.to_hostname === step.to &&
+            e.user === step.user &&
+            e.ip === step.ip &&
+            e.port === step.port
+        );
+
+        matchingEdges.forEach(edge => {
+            edges.update({
+                id: edge.id,
+                color: {
+                    color: '#4caf50'
+                },
+                width: 4
+            });
+        });
+    });
+
+    // Focus on the path
+    network.fit({
+        nodes: pathNodeIds,
+        animation: {
+            duration: 1000,
+            easingFunction: 'easeInOutQuad'
+        }
+    });
 }
 
 // Show/hide loading indicator

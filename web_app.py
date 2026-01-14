@@ -11,6 +11,7 @@ This application runs on localhost only and provides an intuitive GUI for:
 from flask import Flask, render_template, jsonify, request
 from modules.graphdb import GraphDB
 from modules.config import CONFIG
+import html
 
 app = Flask(__name__)
 
@@ -39,12 +40,15 @@ def get_graph():
         hosts = db.get_all_hosts_detailed()
         nodes = []
         for host in hosts:
+            hostname = html.escape(host['hostname'])
+            interfaces = [html.escape(ip) for ip in host['interfaces']]
+            interfaces_str = ', '.join(interfaces) if interfaces else 'N/A'
             nodes.append({
                 'id': host['id'],
-                'label': host['hostname'],
-                'hostname': host['hostname'],
-                'interfaces': host['interfaces'],
-                'title': f"{host['hostname']}<br>IPs: {', '.join(host['interfaces']) if host['interfaces'] else 'N/A'}"
+                'label': hostname,
+                'hostname': hostname,
+                'interfaces': interfaces,
+                'title': f"{hostname}<br>IPs: {interfaces_str}"
             })
         # Get all SSH_ACCESS relationships (edges)
         edges = []
@@ -63,20 +67,28 @@ def get_graph():
                 edge_id = record['edge_id']
                 if edge_id not in edge_ids:
                     edge_ids.add(edge_id)
+                    # Escape user input for HTML display
+                    user = html.escape(str(record['user']))
+                    ip = html.escape(str(record['ip']))
+                    method = html.escape(str(record['method']))
+                    from_hostname = html.escape(str(record['from_hostname']))
+                    to_hostname = html.escape(str(record['to_hostname']))
+                    creds = html.escape(str(record['creds']))
+
                     edges.append({
                         'id': edge_id,
                         'from': record['from_id'],
                         'to': record['to_id'],
-                        'from_hostname': record['from_hostname'],
-                        'to_hostname': record['to_hostname'],
-                        'user': record['user'],
-                        'method': record['method'],
-                        'creds': record['creds'],
-                        'ip': record['ip'],
+                        'from_hostname': from_hostname,
+                        'to_hostname': to_hostname,
+                        'user': user,
+                        'method': method,
+                        'creds': creds,
+                        'ip': ip,
                         'port': record['port'],
                         'time': record['time'],
-                        'title': f"{record['user']}@{record['ip']}:{record['port']}<br>Method: {record['method']}",
-                        'label': f"{record['user']}@{record['ip']}"
+                        'title': f"{user}@{ip}:{record['port']}<br>Method: {method}",
+                        'label': f"{user}@{ip}"
                     })
 
         return jsonify({
@@ -291,4 +303,5 @@ if __name__ == '__main__':
     print("=" * 60)
 
     # Run on localhost only (no external access)
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    # Debug mode is disabled for security (prevents code execution via web interface)
+    app.run(host='127.0.0.1', port=5000, debug=False)
