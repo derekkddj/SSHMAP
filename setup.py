@@ -6,7 +6,7 @@ setup(
     version="1.0.0",
     packages=find_packages(),
     # Include the top-level CLI modules
-    py_modules=["SSHMAP", "sshmap_execute", "sshmap_cli", "sshmap_web", "web_app"],
+    py_modules=["SSHMAP", "sshmap_execute", "sshmap_cli", "sshmap_web", "web_app", "sshmap_post"],
     # Include non-Python files
     include_package_data=True,
     package_data={
@@ -39,6 +39,8 @@ setup(
             "sshmap-web=sshmap_web:main",
             # Exposes the CLI as `sshmap-cli`
             "sshmap-cli=sshmap_cli:main",
+            # Exposes the post-exploitation tool as `sshmap-post`
+            "sshmap-post=sshmap_post:main",
         ]
     },
 )
