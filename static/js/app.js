@@ -122,7 +122,9 @@ function getLayoutOptions(layoutType) {
             hover: true,
             tooltipDelay: 50,
             navigationButtons: true,
-            keyboard: true,
+            keyboard: {
+                enabled: false
+            },
             multiselect: true,
             selectable: true
         },
