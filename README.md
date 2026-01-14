@@ -480,7 +480,7 @@ class MyCustomModule(BasePostExploitationModule):
     
     async def execute(self, ssh_session, output_dir: str) -> Dict[str, Any]:
         # Your module logic here
-        hostname = await ssh_session.get_remote_hostname()
+        hostname = ssh_session.get_remote_hostname()
         output = await ssh_session.exec_command("your_command")
         # Save results and return status
         return {"success": True, "hostname": hostname, "data": output, "error": None}
