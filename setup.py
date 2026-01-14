@@ -5,8 +5,8 @@ setup(
     name="sshmap",
     version="1.0.0",
     packages=find_packages(),
-    # Include the top-level CLI module
-    py_modules=["SSHMAP"],
+    # Include the top-level CLI modules
+    py_modules=["SSHMAP", "sshmap_execute", "sshmap_cli", "sshmap_web", "web_app"],
     # Runtime dependencies for the CLI
     install_requires=[
         "neo4j",
