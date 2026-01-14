@@ -10,3 +10,4 @@ pyyaml
 pytest
 pytest-asyncio
 pytest-mock
+flask

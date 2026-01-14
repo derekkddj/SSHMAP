@@ -17,6 +17,7 @@ setup(
         "termcolor",
         "psutil",
         "pyvis",
+        "flask",
     ],
     entry_points={
         "console_scripts": [
