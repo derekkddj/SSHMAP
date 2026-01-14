@@ -11,7 +11,6 @@ This application runs on localhost only and provides an intuitive GUI for:
 from flask import Flask, render_template, jsonify, request
 from modules.graphdb import GraphDB
 from modules.config import CONFIG
-import os
 
 app = Flask(__name__)
 
@@ -47,11 +46,10 @@ def get_graph():
                 'interfaces': host['interfaces'],
                 'title': f"{host['hostname']}<br>IPs: {', '.join(host['interfaces']) if host['interfaces'] else 'N/A'}"
             })
-        
         # Get all SSH_ACCESS relationships (edges)
         edges = []
         edge_ids = set()  # Track unique edges
-        
+
         with db.driver.session() as session:
             result = session.run("""
                 MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
@@ -60,7 +58,7 @@ def get_graph():
                        r.user AS user, r.method AS method, r.creds AS creds,
                        r.ip AS ip, r.port AS port, r.time AS time
             """)
-            
+
             for record in result:
                 edge_id = record['edge_id']
                 if edge_id not in edge_ids:
@@ -80,7 +78,7 @@ def get_graph():
                         'title': f"{record['user']}@{record['ip']}:{record['port']}<br>Method: {record['method']}",
                         'label': f"{record['user']}@{record['ip']}"
                     })
-        
+
         return jsonify({
             'nodes': nodes,
             'edges': edges
@@ -100,12 +98,12 @@ def search():
         query = request.args.get('q', '').lower()
         if not query:
             return jsonify({'nodes': [], 'edges': []})
-        
+
         # Search nodes (hosts)
         matching_nodes = []
         hosts = db.get_all_hosts_detailed()
         for host in hosts:
-            if (query in host['hostname'].lower() or 
+            if (query in host['hostname'].lower() or
                 any(query in ip.lower() for ip in host['interfaces'])):
                 matching_nodes.append({
                     'id': host['id'],
@@ -113,7 +111,7 @@ def search():
                     'hostname': host['hostname'],
                     'interfaces': host['interfaces']
                 })
-        
+
         # Search edges (connections)
         matching_edges = []
         with db.driver.session() as session:
@@ -129,7 +127,7 @@ def search():
                        r.user AS user, r.method AS method, r.creds AS creds,
                        r.ip AS ip, r.port AS port
             """, query=query)
-            
+
             for record in result:
                 matching_edges.append({
                     'id': record['edge_id'],
@@ -143,7 +141,7 @@ def search():
                     'ip': record['ip'],
                     'port': record['port']
                 })
-        
+
         return jsonify({
             'nodes': matching_nodes,
             'edges': matching_edges
@@ -164,19 +162,19 @@ def get_node(node_id):
                 WHERE id(h) = $node_id
                 RETURN id(h) AS id, h.hostname AS hostname, h.interfaces AS interfaces
             """, node_id=node_id)
-            
+
             record = result.single()
             if not record:
                 return jsonify({'error': 'Node not found'}), 404
-            
+
             # Get outgoing connections
             outgoing = session.run("""
                 MATCH (h:Host)-[r:SSH_ACCESS]->(target:Host)
                 WHERE id(h) = $node_id
-                RETURN target.hostname AS target, r.user AS user, 
+                RETURN target.hostname AS target, r.user AS user,
                        r.method AS method, r.ip AS ip, r.port AS port
             """, node_id=node_id)
-            
+
             # Get incoming connections
             incoming = session.run("""
                 MATCH (source:Host)-[r:SSH_ACCESS]->(h:Host)
@@ -184,7 +182,7 @@ def get_node(node_id):
                 RETURN source.hostname AS source, r.user AS user,
                        r.method AS method, r.ip AS ip, r.port AS port
             """, node_id=node_id)
-            
+
             return jsonify({
                 'id': record['id'],
                 'hostname': record['hostname'],
@@ -210,11 +208,11 @@ def get_edge(edge_id):
                        r.user AS user, r.method AS method, r.creds AS creds,
                        r.ip AS ip, r.port AS port, r.time AS time
             """, edge_id=edge_id)
-            
+
             record = result.single()
             if not record:
                 return jsonify({'error': 'Edge not found'}), 404
-            
+
             return jsonify(dict(record))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -235,10 +233,10 @@ def find_path():
         start = data.get('start')
         end = data.get('end')
         find_all = data.get('all', False)
-        
+
         if not start or not end:
             return jsonify({'error': 'start and end parameters are required'}), 400
-        
+
         if find_all:
             # Find all paths (limited to reasonable depth)
             paths = db.find_all_paths_to(start, end, max_depth=10)
@@ -246,10 +244,10 @@ def find_path():
             # Find shortest path
             path = db.find_path(start, end)
             paths = [path] if path else []
-        
+
         if not paths:
             return jsonify({'paths': [], 'message': 'No path found'})
-        
+
         # Format paths for display
         formatted_paths = []
         for path in paths:
@@ -265,7 +263,7 @@ def find_path():
                     'port': meta['port']
                 })
             formatted_paths.append(formatted_path)
-        
+
         return jsonify({'paths': formatted_paths})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -288,9 +286,9 @@ if __name__ == '__main__':
     print("=" * 60)
     print("SSHMAP Web Interface")
     print("=" * 60)
-    print(f"Starting web server on http://localhost:5000")
+    print("Starting web server on http://localhost:5000")
     print("Press Ctrl+C to stop the server")
     print("=" * 60)
-    
+
     # Run on localhost only (no external access)
     app.run(host='127.0.0.1', port=5000, debug=True)

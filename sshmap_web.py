@@ -29,7 +29,7 @@ if __name__ == '__main__':
         print("Press Ctrl+C to stop the server")
         print("=" * 70)
         print()
-        
+
         # Run the Flask app
         app.run(host='127.0.0.1', port=5000, debug=False)
     except KeyboardInterrupt:
@@ -46,5 +46,5 @@ if __name__ == '__main__':
         # Close database connection
         try:
             db.close()
-        except:
+        except Exception:
             pass
