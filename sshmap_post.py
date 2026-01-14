@@ -29,11 +29,9 @@ import subprocess
 
 console = nxc_console
 
-# Initialize the Neo4j graph database connection
-graph = GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
-
-# Date of running
-currenttime = datetime.now().strftime('%Y%m%d_%H%M%S')
+# These will be initialized in main()
+graph = None
+currenttime = None
 
 
 def print_banner():
@@ -103,6 +101,8 @@ async def run_module_on_host(
 
 async def async_main(args):
     """Main async execution function."""
+    global graph
+    
     # Load credentials
     credential_store = CredentialStore(args.credentialspath)
     
@@ -202,6 +202,8 @@ async def async_main(args):
 
 def main():
     """Main entry point."""
+    global graph, currenttime
+    
     parser = argparse.ArgumentParser(
         description="SSHMAP Post-Exploitation Tool - Run modular post-exploitation on discovered SSH connections",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -264,6 +266,10 @@ def main():
     # Print banner
     if not args.list:
         print_banner()
+    
+    # Initialize GraphDB and timestamp
+    currenttime = datetime.now().strftime('%Y%m%d_%H%M%S')
+    graph = GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
     
     # Check Neo4j connectivity
     try:
