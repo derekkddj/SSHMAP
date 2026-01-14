@@ -1,0 +1,11 @@
+/* Additional styles for SSHMAP Web Interface */
+/* Most styles are defined inline in index.html for simplicity */
+
+body {
+    margin: 0;
+    padding: 0;
+}
+
+.hidden {
+    display: none !important;
+}

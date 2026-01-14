@@ -15,7 +15,8 @@ class SSHSessionManager:
         """
         path = self.graphdb.find_path(start_hostname, target_hostname)
         if not path:
-            raise Exception(f"No path from {start_hostname} to {target_hostname}")
+            sshmap_logger.error(f"No path found from {start_hostname} to {target_hostname}")
+            return None
 
         previous_session = None
         last_session = None
@@ -25,8 +26,10 @@ class SSHSessionManager:
 
             # Reuse if alive
             existing = self.sessions.get(key)
-            if existing and existing.is_connected():
+            if existing and await existing.is_connected():
+                sshmap_logger.debug(f"Reusing existing session to {dst}")
                 previous_session = existing
+                last_session = existing
                 continue
 
             key_filename = meta["creds"] if meta["method"] == "keyfile" else None
@@ -46,7 +49,13 @@ class SSHSessionManager:
                 jumper=previous_session,
             )
 
-            await session.connect()
+            sshmap_logger.info(f"Connecting to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}...")
+            connected = await session.connect()
+            
+            if not connected:
+                sshmap_logger.error(f"Failed to connect to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}")
+                return None
+            
             self.sessions[key] = session
             previous_session = session
             last_session = session

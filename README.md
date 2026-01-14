@@ -49,6 +49,7 @@ options:
 - Smart connection tracking - skips already-attempted connections for faster subsequent runs
 - Batched database writes for optimal performance with thousands of connection attempts
 - Start scanning from any discovered remote host with `--start-from` option
+- **Web-based graph visualization interface** - Explore your SSH network topology with an intuitive web UI
 
 ## Screenshots
 Attacking just one machine, and using it as a jump host:
@@ -242,6 +243,29 @@ python SSHMAP.py --targets wordlists/ips.txt --users wordlists/usernames.txt --p
 Firts go to http://localhost:7474/browser/preview/ and browse the data.
 
 ![image](docs/media/neo4_graph.png)
+
+### Use the Web Interface (Recommended):
+
+SSHMAP now includes a web-based interface for exploring your SSH connection graph with an intuitive GUI!
+
+**Start the web server:**
+```bash
+python3 sshmap_web.py
+```
+
+Then open your browser and navigate to: **http://127.0.0.1:5000**
+
+**Features:**
+- 🎨 **Interactive Graph Visualization** - See all your SSH connections in a dynamic, interactive network graph
+- 🔍 **Search Functionality** - Find nodes and connections by hostname, IP, user, or port
+- 🛤️ **Path Finder** - Discover routes between any two hosts in your network
+- 📊 **Statistics Dashboard** - View network statistics at a glance
+- 💡 **Node & Edge Details** - Click on any node or connection to see detailed information
+- 🎯 **Autocomplete** - Easy hostname selection with autocomplete suggestions
+
+The web interface provides a much more intuitive way to explore and understand your SSH network topology compared to the Neo4j browser interface.
+
+**Note:** The web interface runs on localhost only (127.0.0.1) and does not include authentication, as it's designed for local exploration only.
 
 ### Use the included CLI:
 
