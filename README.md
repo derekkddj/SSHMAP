@@ -405,7 +405,7 @@ SSHMAP includes `sshmap-post`, a modular post-exploitation tool that runs on rem
 **Available Modules:**
 - **credential_harvester** - Searches for credentials in shell history, SSH keys, config files (.netrc, .my.cnf, etc.), and common credential locations
 - **system_info** - Gathers comprehensive system information (OS, network, users, processes, packages, etc.)
-- **linpeas** - Downloads and executes LinPEAS for privilege escalation enumeration
+- **linpeas** - Downloads LinPEAS to the attacker machine, uploads it via SFTP to the remote host, and executes it for privilege escalation enumeration (works even if remote host has no internet access)
 
 **List available modules:**
 ```bash
