@@ -1,7 +1,6 @@
 from .SSHSession import SSHSession
 from .logger import sshmap_logger
 from .credential_store import Credential
-from .attempt_store import AttemptStore
 import asyncio
 from .config import CONFIG
 import random

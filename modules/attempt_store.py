@@ -1,6 +1,5 @@
 import sqlite3
 import os
-from pathlib import Path
 import asyncio
 from .logger import sshmap_logger
 

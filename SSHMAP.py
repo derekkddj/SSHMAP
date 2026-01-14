@@ -9,7 +9,6 @@ from modules.helpers.logger import highlight
 from modules.config import CONFIG
 from modules.utils import (
     get_local_info,
-    get_remote_hostname,
     get_remote_ip,
     read_targets,
     check_open_port,
