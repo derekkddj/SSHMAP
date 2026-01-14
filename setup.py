@@ -7,6 +7,11 @@ setup(
     packages=find_packages(),
     # Include the top-level CLI modules
     py_modules=["SSHMAP", "sshmap_execute", "sshmap_cli", "sshmap_web", "web_app"],
+    # Include non-Python files
+    include_package_data=True,
+    package_data={
+        '': ['templates/*.html', 'static/css/*.css', 'static/js/*.js'],
+    },
     # Runtime dependencies for the CLI
     install_requires=[
         "neo4j",
