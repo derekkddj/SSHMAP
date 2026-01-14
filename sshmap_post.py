@@ -110,10 +110,14 @@ async def async_main(args):
     local_hostname = None
     try:
         result = subprocess.run(
-            ["hostname"], capture_output=True, text=True, check=True
+            ["hostname"], capture_output=True, text=True, timeout=5
         )
-        local_hostname = result.stdout.strip()
-        sshmap_logger.display(f"Local hostname: {local_hostname}")
+        if result.returncode == 0:
+            local_hostname = result.stdout.strip()
+            sshmap_logger.display(f"Local hostname: {local_hostname}")
+        else:
+            sshmap_logger.error("Failed to get local hostname")
+            return
     except Exception as e:
         sshmap_logger.error(f"Failed to get local hostname: {e}")
         return
