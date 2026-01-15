@@ -101,8 +101,6 @@ async def run_module_on_host(
 
 async def async_main(args):
     """Main async execution function."""
-    global graph
-    
     # Load credentials
     credential_store = CredentialStore(args.credentialspath)
     
