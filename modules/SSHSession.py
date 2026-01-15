@@ -44,7 +44,8 @@ class SSHSession:
         )
         if jumper:
             # jumper is an instance of SSHSession, get the transport ip from the jumper
-            self.sshmap_logger.debug(f"[{host}:{port}] Using jumper {jumper} with id {attempt_id}")
+            jumper_info = f"{jumper.get_remote_hostname()}@{jumper.get_host()}"
+            self.sshmap_logger.debug(f"[{attempt_id}] Using jumper {jumper_info}")
 
     async def connect(self):
         """Connect to the host using asyncssh."""
@@ -107,35 +108,43 @@ class SSHSession:
                     )
 
             self.remote_hostname = await get_remote_hostname(self)
-            if self.password:
-                self.sshmap_logger.success(
-                    f"{self.user}:{self.password} (hostname:{self.remote_hostname}) [id: {self.attempt_id}]"
-                )
-            else:
-                self.sshmap_logger.success(
-                    f"{self.user}:{self.key_filename} (hostname:{self.remote_hostname}) [id: {self.attempt_id}]"
-                )
+            keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
+            cred_display = self.password if self.password else keyfile_display
+            self.sshmap_logger.success(
+                f"[{self.attempt_id}] {self.user}:{cred_display} (hostname:{self.remote_hostname})"
+            )
             return True
 
         except asyncssh.PermissionDenied:
+            keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
+            cred_display = self.password if self.password else keyfile_display
             self.sshmap_logger.fail(
-                f"{self.user}:{self.password if self.password else self.key_filename} [id: {self.attempt_id}]"
+                f"[{self.attempt_id}] {self.user}:{cred_display}"
             )
             return False
         except asyncssh.ChannelOpenError as e:
+            keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
+            cred_display = self.password if self.password else keyfile_display
+            jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
             self.sshmap_logger.info(
-                f"ChannelOpenError with:{self.user}:{self.password if self.password else self.key_filename} to {self.host}:{self.port} with jump host {self.jumper if self.jumper else None}, id: {self.attempt_id}, Error: {e.reason}"
+                f"[{self.attempt_id}] {self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - ChannelOpenError: {e.reason}"
             )
             return False
         except asyncssh.ConnectionLost as e: # aqui aparecen muchos casos cuando hay mucha sobrecarga
             # Re-raise ConnectionLost for retry logic in bruteforce.py
+            keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
+            cred_display = self.password if self.password else keyfile_display
+            jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
             self.sshmap_logger.warning(
-                f"ConnectionLost error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper if self.jumper else None}, id: {self.attempt_id}, Error: {e}"
+                f"[{self.attempt_id}] {self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - ConnectionLost: {e}"
             )
             raise
         except Exception as e:
+            keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
+            cred_display = self.password if self.password else keyfile_display
+            jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
             self.sshmap_logger.error(
-                f"Unexpected error for {self.user}@{self.host}:{self.port} with cred {self.password if self.password else self.key_filename} using jump {self.jumper if self.jumper else None}, id: {self.attempt_id},  {type(e).__name__} - {e}"
+                f"[{self.attempt_id}] {self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - {type(e).__name__}: {e}"
             )
             self.connection = None
             return False
@@ -170,7 +179,7 @@ class SSHSession:
         if self.connection:
             self.connection.close()
             await self.connection.wait_closed()
-            self.sshmap_logger.debug(f"Closed SSH connection to {self.host}")
+            self.sshmap_logger.debug(f"Closed connection to {self.host}:{self.port}")
 
     def get_connection(self):
         return self.connection
@@ -185,7 +194,7 @@ class SSHSession:
         # First check if jumper chain is healthy (recursive validation)
         if self.jumper and not await self.jumper.is_connected():
             self.sshmap_logger.warning(
-                f"Jumper connection for {self.host} is broken, session is invalid"
+                f"Jumper connection broken for {self.host}:{self.port}"
             )
             return False
         
@@ -196,6 +205,6 @@ class SSHSession:
             return process.exit_status == 0
         except Exception as e:
             self.sshmap_logger.error(
-                f"Error checking connection status for {self.host}: {e}"
+                f"Error checking connection for {self.host}:{self.port} - {type(e).__name__}: {e}"
             )
             return False

@@ -74,6 +74,10 @@ class CredentialStore:
             writer.writerows([cred.to_dict() for cred in credentials])
 
     async def store(self, remote_ip, port, user, secret, method):
+        # Convert relative keyfile paths to absolute paths
+        if method == "keyfile" and not os.path.isabs(secret):
+            secret = os.path.abspath(secret)
+        
         new_cred = Credential(
             remote_ip=str(remote_ip),
             port=str(port),

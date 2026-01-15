@@ -145,6 +145,15 @@
             color: #6a7cf6;
             font-size: 20px;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sidebar-logo {
+            height: 32px;
+            width: auto;
+            object-fit: contain;
         }
 
         .sidebar-header h2 {
@@ -397,7 +406,6 @@
             border-radius: 5px;
             background: #3a3c41;
             outline: none;
-            -webkit-appearance: none;
         }
 
         .connection-slider::-webkit-slider-thumb {
@@ -509,6 +517,8 @@
             gap: 10px;
             align-items: center;
             flex-shrink: 0;
+            position: relative;
+            z-index: 10;
         }
 
         .toolbar-btn {
@@ -521,6 +531,8 @@
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
+            position: relative;
+            z-index: 5;
         }
 
         .toolbar-btn:hover {
@@ -888,7 +900,7 @@
         <!-- Left Sidebar - Controls -->
         <div class="left-sidebar" id="leftSidebar">
             <div class="sidebar-header">
-                <h1>🔐 SSHMAP</h1>
+                <h1><img src="{{ url_for('static', filename='Logonew.png') }}" alt="SSHMAP Logo" class="sidebar-logo"> SSHMAP</h1>
                 <button class="sidebar-toggle" onclick="toggleSidebar('left')">☰</button>
             </div>
 
@@ -991,10 +1003,6 @@
                 </button>
                 <button class="toolbar-btn" onclick="loadGraph()" title="Reload graph">
                     🔄 Reload
-                </button>
-                <div style="flex: 1;"></div>
-                <button class="toolbar-btn" onclick="toggleSidebar('right')" title="Toggle details panel">
-                    ℹ️ Details
                 </button>
             </div>
             <div class="graph-container">

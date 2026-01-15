@@ -264,7 +264,8 @@ async def async_main(args):
         users = [line.strip() for line in f if line.strip()]
     with open(args.passwords) as f:
         passwords = [line.strip() for line in f if line.strip()]
-    keyfiles = [os.path.join(args.keys, f) for f in os.listdir(args.keys)]
+    # Convert keyfile paths to absolute paths
+    keyfiles = [os.path.abspath(os.path.join(args.keys, f)) for f in os.listdir(args.keys)]
 
     for user in users:
         for password in passwords:
@@ -487,7 +488,7 @@ def main():
     parser.add_argument(
         "--credentialspath",
         default="wordlists/credentials.csv",
-        help="Path to CSV credentials file, will populate users and passwords",
+        help="Path to CSV credentials file, will populate users and passwords, keyfiles uses relative paths",
     )
     parser.add_argument(
         "--keys",

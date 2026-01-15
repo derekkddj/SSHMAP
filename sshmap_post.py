@@ -128,10 +128,10 @@ async def async_main(args):
         list_modules(registry)
         return
     
-    # Create output directory
-    output_dir = os.path.join(args.output, f"post_exploitation_{currenttime}")
-    os.makedirs(output_dir, exist_ok=True)
-    sshmap_logger.display(f"Output directory: {output_dir}")
+    # Create base output directory
+    base_output_dir = os.path.join(args.output, f"post_exploitation_{currenttime}")
+    os.makedirs(base_output_dir, exist_ok=True)
+    sshmap_logger.display(f"Base output directory: {base_output_dir}")
     
     # Determine which hosts to target
     if args.all:
@@ -169,6 +169,10 @@ async def async_main(args):
     # Run modules on each host
     with progress:
         for hostname in hostnames:
+            # Create hostname-specific output directory
+            host_output_dir = os.path.join(base_output_dir, hostname)
+            os.makedirs(host_output_dir, exist_ok=True)
+            
             for module_name in modules_to_run:
                 task = progress.add_task(
                     f"[cyan]{module_name} on {hostname}", total=1
@@ -179,23 +183,23 @@ async def async_main(args):
                     hostname,
                     local_hostname,
                     credential_store,
-                    output_dir,
+                    host_output_dir,
                     registry,
                 )
                 
                 progress.update(task, advance=1)
                 
                 if result["success"]:
-                    sshmap_logger.display(
+                    console.print(
                         f"[green]✓[/green] {module_name} completed on {hostname}"
                     )
                 else:
-                    sshmap_logger.error(
+                    console.print(
                         f"[red]✗[/red] {module_name} failed on {hostname}: {result.get('error', 'Unknown error')}"
                     )
     
-    sshmap_logger.display(f"\n[green]Post-exploitation completed![/green]")
-    sshmap_logger.display(f"Results saved in: {output_dir}")
+    console.print(f"\n[green]Post-exploitation completed![/green]")
+    console.print(f"Results saved in: {base_output_dir}")
 
 
 def main():
