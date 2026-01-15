@@ -35,7 +35,10 @@ class CredentialStore:
         self.lock = Lock()
         self.key_objects = {}
         sshmap_logger.debug(f"Loading credentials from {self.path}")
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        # Only create directory if path contains a directory component
+        dir_path = os.path.dirname(self.path)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
         self.credentials = self._read_all()
         sshmap_logger.debug(
             f"Loaded {len(self.credentials)} credentials from {self.path}"
