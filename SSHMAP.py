@@ -14,6 +14,7 @@ from modules.utils import (
     check_open_port,
     get_all_ips_in_subnet,
     read_list_from_file_or_string,
+    load_keys,
 )
 from modules.credential_store import CredentialStore
 from argparse import RawTextHelpFormatter
@@ -264,7 +265,7 @@ async def async_main(args):
     users = read_list_from_file_or_string(args.users)
     passwords = read_list_from_file_or_string(args.passwords)
     # Convert keyfile paths to absolute paths
-    keyfiles = [os.path.abspath(os.path.join(args.keys, f)) for f in os.listdir(args.keys)]
+    keyfiles = load_keys(args.keys)
 
     for user in users:
         for password in passwords:

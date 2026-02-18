@@ -58,6 +58,26 @@ def read_list_from_file_or_string(input_val):
         return [input_val.strip()]
 
 
+def load_keys(keys_dir):
+    """
+    Load key file paths from the given directory.
+    If the directory does not exist, return an empty list.
+    """
+    keyfiles = []
+    if os.path.isdir(keys_dir):
+        try:
+            keyfiles = [os.path.abspath(os.path.join(keys_dir, f)) for f in os.listdir(keys_dir)]
+        except Exception as e:
+            sshmap_logger.error(f"Error listing keys directory {keys_dir}: {e}")
+    else:
+        if keys_dir != "wordlists/keys/":
+             sshmap_logger.warning(f"Keys directory not found: {keys_dir}. proceeding without keys.")
+        else:
+             sshmap_logger.debug(f"Default keys directory not found: {keys_dir}. proceeding without keys.")
+    
+    return keyfiles
+
+
 def get_local_info():
     hostname = socket.gethostname()
     ip_info = []
