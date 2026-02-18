@@ -464,7 +464,7 @@ def main():
         formatter_class=RawTextHelpFormatter,
     )
     parser.add_argument(
-        "--targets", required=True, help="Path to the file with target IPs"
+        "--targets", required=True, help="Path to the file with target IPs or a direct IP/CIDR string"
     )
     parser.add_argument(
         "--blacklist", required=False, help="Path to the file with IPs to ignore"

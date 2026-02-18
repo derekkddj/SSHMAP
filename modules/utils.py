@@ -1,4 +1,5 @@
 import socket
+import os
 import psutil
 import ipaddress
 from .logger import sshmap_logger
@@ -7,22 +8,32 @@ import asyncio
 import asyncssh
 
 
-def read_targets(file_path):
-    """Read IPs or CIDRs from the given file and expand CIDRs into individual IPs."""
+def read_targets(target_input):
+    """Read IPs or CIDRs from the given file OR direct string and expand CIDRs into individual IPs."""
     targets = []
+    lines = []
 
-    with open(file_path, "r") as file:
-        for line in file.readlines():
-            line = line.strip()
-            if line:  # Skip empty lines
-                try:
-                    # Check if the line is a valid CIDR block
-                    network = ipaddress.IPv4Network(line, strict=False)
-                    # If it's a valid CIDR, expand it to individual IPs and add them to targets
-                    targets.extend([str(ip) for ip in network.hosts()])
-                except ValueError:
-                    # If it's not a valid CIDR, treat it as an individual IP
-                    targets.append(line)
+    # Check if input is a file
+    if os.path.isfile(target_input):
+        try:
+            with open(target_input, "r") as file:
+                lines = [line.strip() for line in file.readlines() if line.strip()]
+        except Exception as e:
+            sshmap_logger.error(f"Error reading file {target_input}: {e}")
+            return []
+    else:
+        # Treat as direct input (IP or CIDR)
+        lines = [target_input.strip()]
+
+    for line in lines:
+        try:
+            # Check if the line is a valid CIDR block
+            network = ipaddress.IPv4Network(line, strict=False)
+            # If it's a valid CIDR, expand it to individual IPs and add them to targets
+            targets.extend([str(ip) for ip in network.hosts()])
+        except ValueError:
+            # If it's not a valid CIDR, treat it as an individual IP
+            targets.append(line)
 
     return targets
 
