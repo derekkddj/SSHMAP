@@ -13,6 +13,7 @@ from modules.utils import (
     read_targets,
     check_open_port,
     get_all_ips_in_subnet,
+    read_list_from_file_or_string,
 )
 from modules.credential_store import CredentialStore
 from argparse import RawTextHelpFormatter
@@ -260,10 +261,8 @@ async def async_main(args):
     credential_store = CredentialStore(args.credentialspath)
     targets = read_targets(args.targets)
 
-    with open(args.users) as f:
-        users = [line.strip() for line in f if line.strip()]
-    with open(args.passwords) as f:
-        passwords = [line.strip() for line in f if line.strip()]
+    users = read_list_from_file_or_string(args.users)
+    passwords = read_list_from_file_or_string(args.passwords)
     # Convert keyfile paths to absolute paths
     keyfiles = [os.path.abspath(os.path.join(args.keys, f)) for f in os.listdir(args.keys)]
 
@@ -478,12 +477,12 @@ def main():
     parser.add_argument(
         "--users",
         default="wordlists/users.txt",
-        help="Path to the file with usernames for bruteforce",
+        help="Path to the file with usernames OR a single username",
     )
     parser.add_argument(
         "--passwords",
         default="wordlists/passwords.txt",
-        help="Path to the file with passwords for bruteforce",
+        help="Path to the file with passwords OR a single password",
     )
     parser.add_argument(
         "--credentialspath",

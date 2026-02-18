@@ -38,6 +38,26 @@ def read_targets(target_input):
     return targets
 
 
+def read_list_from_file_or_string(input_val):
+    """
+    Read a list of strings from a file (if valid path) or treat input as a single item list.
+    Useful for username/password inputs that could be a file path or the value itself.
+    """
+    if not input_val:
+        return []
+
+    if os.path.isfile(input_val):
+        try:
+            with open(input_val, "r") as f:
+                return [line.strip() for line in f.readlines() if line.strip()]
+        except Exception as e:
+            sshmap_logger.error(f"Error reading file {input_val}: {e}")
+            return []
+    else:
+        # Treat as direct input
+        return [input_val.strip()]
+
+
 def get_local_info():
     hostname = socket.gethostname()
     ip_info = []
