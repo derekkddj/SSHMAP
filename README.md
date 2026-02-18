@@ -20,7 +20,7 @@ usage: sshmap [-h] --targets TARGETS [--blacklist BLACKLIST] [--whitelist WHITEL
         SSH Credential Mapper - SSHMAP
         Navigating the Maze of Access...
 
-        Version : 1.0.0
+        Version : 1.0.1
 
 
 options:
