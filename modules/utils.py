@@ -199,11 +199,13 @@ async def get_remote_ip(ssh_client):
     ip_info = []
 
     # Try `ip` command first
-    out, err = await ssh_client.exec_command_with_stderr(
+    out, err, exit_status = await ssh_client.exec_command_with_stderr(
         "ip -o -4 addr show | awk '{print $4}'"
     )
-    if err or not out.strip():
-        sshmap_logger.warning(f"`ip` command failed or missing: {err.strip()}")
+    if exit_status != 0 or err or not out.strip():
+        sshmap_logger.warning(
+            f"`ip` command failed or missing (exit_status={exit_status}): {err.strip()}"
+        )
     else:
         sshmap_logger.debug(f"ip command output: {out}")
         cidrs = out.strip().split()
@@ -214,10 +216,10 @@ async def get_remote_ip(ssh_client):
 
     # Fallback to `ifconfig` if `ip` failed or returned nothing
     if not ip_info:
-        out, err = await ssh_client.exec_command_with_stderr("ifconfig")
-        if err or not out.strip():
+        out, err, exit_status = await ssh_client.exec_command_with_stderr("ifconfig")
+        if exit_status != 0 or err or not out.strip():
             sshmap_logger.warning(
-                f"`ifconfig` command failed or missing: {err.strip()}"
+                f"`ifconfig` command failed or missing (exit_status={exit_status}): {err.strip()}"
             )
         else:
             lines = out.strip().splitlines()
