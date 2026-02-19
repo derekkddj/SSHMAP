@@ -145,36 +145,37 @@ def preload_key(key_filename):
 # ssh_client is an instance of SSHSession
 async def get_remote_hostname(ssh_client):
     sshmap_logger.debug("Getting remote hostname...")
-    try:
-        hostname, err = await ssh_client.exec_command_with_stderr("hostname")
-        # Strip whitespace and validate hostname
-        if hostname and hostname.strip():
-            hostname = hostname.strip()
-            sshmap_logger.debug(f"Successfully retrieved hostname: {hostname}")
-            return hostname
-        else:
-            # hostname command returned empty - log warning but don't fall back to IP
-            sshmap_logger.warning(
-                f"Hostname command returned empty for {ssh_client.host}, stderr: {err}, stdout: {hostname}"
-            )
-            # Still try to return a valid hostname, use IP only as absolute last resort
-            # For now, use IP but this indicates a problem
-            hostname = ssh_client.host
-            sshmap_logger.warning(f"Using IP address as hostname: {hostname}")
-            return hostname
-    except AttributeError as e:
-        sshmap_logger.error(f"Failed to get attribute: {e}")
-        # This is a serious error - connection object not properly initialized
-        hostname = ssh_client.host
-        sshmap_logger.error(f"Using IP address as hostname due to AttributeError: {hostname}")
-        return hostname
-    except Exception as e:
-        sshmap_logger.error(
-            f"Failed to get hostname for {ssh_client.host}: {type(e).__name__} - {e}"
-        )
-        hostname = ssh_client.host
-        sshmap_logger.error(f"Using IP address as hostname due to exception: {hostname}")
-        return hostname
+    retries = 3
+    for attempt in range(retries):
+        try:
+            hostname, err = await ssh_client.exec_command_with_stderr("hostname")
+            # Strip whitespace and validate hostname
+            if hostname and hostname.strip():
+                hostname = hostname.strip()
+                sshmap_logger.debug(f"Successfully retrieved hostname: {hostname}")
+                return hostname
+            else:
+                # hostname command returned empty
+                sshmap_logger.debug(
+                    f"Hostname command returned empty for {ssh_client.host}, stderr: {err}, stdout: {hostname}. Attempt {attempt + 1}/{retries}"
+                )
+                if attempt < retries - 1:
+                    await asyncio.sleep(1)
+                    continue
+        except Exception as e:
+            sshmap_logger.warning(f"Error getting hostname on attempt {attempt + 1}: {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(1)
+                continue
+
+    # If we get here, all retries failed
+    sshmap_logger.warning(f"Failed to get hostname after {retries} attempts.")
+    # Still try to return a valid hostname, use IP only as absolute last resort
+    # For now, use IP but this indicates a problem
+    hostname = ssh_client.host
+    sshmap_logger.warning(f"Using IP address as hostname: {hostname}")
+    return hostname
+    return hostname
 
 
 # ssh_client is an instance of SSHSession

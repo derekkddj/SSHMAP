@@ -12,7 +12,7 @@ import os
 from datetime import datetime
 from modules.config import CONFIG
 from modules.graphdb import GraphDB
-from modules.logger import sshmap_logger
+from modules.logger import sshmap_logger, setup_debug_logging
 from modules.console import nxc_console
 from modules.SSHSessionManager import SSHSessionManager
 from modules.credential_store import CredentialStore
@@ -102,6 +102,7 @@ async def run_module_on_host(
 
 async def async_main(args):
     """Main async execution function."""
+    setup_debug_logging()
     # Load credentials
     credential_store = CredentialStore(args.credentialspath)
     

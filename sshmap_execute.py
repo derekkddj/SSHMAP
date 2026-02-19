@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 from modules.config import CONFIG
 from modules.graphdb import GraphDB
-from modules.logger import sshmap_logger
+from modules.logger import sshmap_logger, setup_debug_logging
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -81,6 +81,7 @@ async def execute_command_on_host(
 
 
 async def async_main(args):
+    setup_debug_logging()
     credential_store = CredentialStore(args.credentialspath)
 
     # I get my "hostname" for the starting point, execute "hostname" in this host with python
