@@ -198,7 +198,7 @@ class SSHSession:
             raise ValueError("SSH connection is not established.")
 
         result = await self.connection.run(command)
-        return result.stdout, result.stderr
+        return result.stdout, result.stderr, result.exit_status
 
     async def close(self):
         """Close the SSH connection."""

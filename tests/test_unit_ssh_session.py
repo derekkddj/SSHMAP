@@ -80,6 +80,21 @@ class TestSSHSession:
         assert result == "output"
         session.connection.run.assert_called_once_with("ls")
 
+    async def test_exec_command_with_stderr(self):
+        session = SSHSession("127.0.0.1", "user")
+        session.connection = MagicMock()
+        session.connection.run = AsyncMock()
+        session.connection.run.return_value.stdout = "output"
+        session.connection.run.return_value.stderr = "error"
+        session.connection.run.return_value.exit_status = 1
+
+        stdout, stderr, exit_status = await session.exec_command_with_stderr("ls")
+
+        assert stdout == "output"
+        assert stderr == "error"
+        assert exit_status == 1
+        session.connection.run.assert_called_once_with("ls")
+
     async def test_exec_command_not_connected(self):
         session = SSHSession("127.0.0.1", "user")
         session.connection = None

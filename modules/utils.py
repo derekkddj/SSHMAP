@@ -148,7 +148,7 @@ async def get_remote_hostname(ssh_client):
     retries = 3
     for attempt in range(retries):
         try:
-            hostname, err = await ssh_client.exec_command_with_stderr("hostname")
+            hostname, err, exit_status = await ssh_client.exec_command_with_stderr("hostname")
             # Strip whitespace and validate hostname
             if hostname and hostname.strip():
                 hostname = hostname.strip()
@@ -156,16 +156,18 @@ async def get_remote_hostname(ssh_client):
                 return hostname
             else:
                 # hostname command returned empty
+                retry_delay = 0.2 if attempt == 0 else 1.0
                 sshmap_logger.debug(
-                    f"Hostname command returned empty for {ssh_client.host}, stderr: {err}, stdout: {hostname}. Attempt {attempt + 1}/{retries}"
+                    f"Hostname command returned empty for {ssh_client.host}, exit_status: {exit_status}, stderr: {err}, stdout: {hostname}. Attempt {attempt + 1}/{retries}. Retrying in {retry_delay}s..."
                 )
                 if attempt < retries - 1:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(retry_delay)
                     continue
         except Exception as e:
-            sshmap_logger.warning(f"Error getting hostname on attempt {attempt + 1}: {e}")
+            retry_delay = 0.2 if attempt == 0 else 1.0
+            sshmap_logger.warning(f"Error getting hostname on attempt {attempt + 1}: {e}. Retrying in {retry_delay}s...")
             if attempt < retries - 1:
-                await asyncio.sleep(1)
+                await asyncio.sleep(retry_delay)
                 continue
 
     # If we get here, all retries failed
@@ -174,7 +176,6 @@ async def get_remote_hostname(ssh_client):
     # For now, use IP but this indicates a problem
     hostname = ssh_client.host
     sshmap_logger.warning(f"Using IP address as hostname: {hostname}")
-    return hostname
     return hostname
 
 
