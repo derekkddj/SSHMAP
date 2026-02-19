@@ -28,6 +28,7 @@ setup(
         "psutil",
         "pyvis",
         "flask",
+        "PySocks"
     ],
     entry_points={
         "console_scripts": [
