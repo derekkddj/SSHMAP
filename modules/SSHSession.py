@@ -1,7 +1,7 @@
 import asyncssh
 import logging
 from .logger import NXCAdapter
-from .utils import get_remote_hostname
+from .utils import get_remote_hostname, create_proxy_socket
 from .config import CONFIG
 
 
@@ -16,6 +16,7 @@ class SSHSession:
         jumper=None,
         key_objects=None,
         attempt_id=None,
+        proxy_url=None,
     ):
         # If jump_session is provided, use it for the connection. Must be SSHSession instance.
         self.host = host
@@ -24,6 +25,7 @@ class SSHSession:
         self.key_filename = key_filename
         self.port = port
         self.jumper = jumper
+        self.proxy_url = proxy_url
         self.connection = (
             None  # Initialize the client as None, type asyncssh.SSHClientConnection
         )
@@ -46,18 +48,29 @@ class SSHSession:
             # jumper is an instance of SSHSession, get the transport ip from the jumper
             jumper_info = f"{jumper.get_remote_hostname()}@{jumper.get_host()}"
             self.sshmap_logger.debug(f"[{attempt_id}] Using jumper {jumper_info}")
+        elif proxy_url:
+            self.sshmap_logger.debug(f"[{attempt_id}] Using proxy {proxy_url}")
 
     async def connect(self):
         """Connect to the host using asyncssh."""
         try:
             # Direct connection or via jumper (proxy)
             if self.jumper:
+                tunnel_conn = self.jumper.get_connection()
+                # If we have a jumper, we tunnel through it.
+                # Note: Chaining proxies AND jumpers is complex.
+                # For now simplify: If jumper is set, it takes precedence or we assume proxy helps reach jumper?
+                # Usually proxy is for reaching the FIRST hop.
+                # If self.jumper is set, it means we are deeper in the chain.
+                # So we probably don't use self.proxy_url here, unless the jumper itself needed a proxy (which would be handled in jumper's session).
+                pass 
+                
                 if self.key_filename:
                     key_obj = self.key_objects.get(self.key_filename)
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
-                        tunnel=self.jumper.get_connection(),
+                        tunnel=tunnel_conn,
                         agent_path=None,
                         agent_forwarding=False,
                         username=self.user,
@@ -70,7 +83,7 @@ class SSHSession:
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
-                        tunnel=self.jumper.get_connection(),
+                        tunnel=tunnel_conn,
                         agent_path=None,
                         agent_forwarding=False,
                         username=self.user,
@@ -81,6 +94,17 @@ class SSHSession:
                     )
 
             else:
+                # No jumper (direct or proxy)
+                sock = None
+                if self.proxy_url:
+                    sock = create_proxy_socket(self.proxy_url, self.host, self.port)
+                    if not sock:
+                        # Failed to create proxy socket
+                        raise ConnectionError(f"Failed to connect to proxy {self.proxy_url}")
+                
+                # If proxy enabled, pass sock=sock. asyncssh ignores host/port if sock is provided (it uses them for host key verification mostly)
+                # Correction: asyncssh documentation says: "If a socket is provided, the host and port arguments are used only for host key verification."
+                
                 if self.key_filename:
                     key_obj = self.key_objects.get(self.key_filename)
                     self.connection = await asyncssh.connect(
@@ -92,6 +116,7 @@ class SSHSession:
                         port=self.port,
                         known_hosts=None,
                         client_keys=[key_obj],
+                        sock=sock
                     )
 
                 else:
@@ -105,6 +130,7 @@ class SSHSession:
                         password=self.password,
                         known_hosts=None,
                         client_keys=None,
+                        sock=sock
                     )
 
             self.remote_hostname = await get_remote_hostname(self)

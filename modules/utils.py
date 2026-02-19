@@ -6,6 +6,41 @@ from .logger import sshmap_logger
 from .config import CONFIG
 import asyncio
 import asyncssh
+import socks  # PySocks
+
+def create_proxy_socket(proxy_url, target_host, target_port):
+    """
+    Creates a socket connected to the target host through the proxy.
+    Returns the connected socket.
+    """
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(proxy_url)
+        
+        proxy_type = socks.SOCKS5
+        if parsed.scheme == "socks4":
+            proxy_type = socks.SOCKS4
+        elif parsed.scheme == "http":
+            proxy_type = socks.HTTP
+        
+        proxy_host = parsed.hostname
+        proxy_port = parsed.port
+        if not proxy_port:
+             if proxy_type == socks.HTTP:
+                 proxy_port = 8080
+             else:
+                 proxy_port = 1080
+        
+        # Create a socket that goes through the proxy
+        s = socks.socksocket()
+        s.set_proxy(proxy_type, proxy_host, proxy_port)
+        
+        # Connect to the target
+        s.connect((target_host, target_port))
+        return s
+    except Exception as e:
+        sshmap_logger.error(f"Failed to connect via proxy {proxy_url}: {e}")
+        return None
 
 
 def read_targets(target_input):

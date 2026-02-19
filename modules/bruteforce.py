@@ -28,7 +28,7 @@ class Result:
 
 
 async def try_single_credential(
-    host, port, credential, jumper=None, credential_store=None, ssh_session_manager=None
+    host, port, credential, jumper=None, credential_store=None, ssh_session_manager=None, proxy_url=None
 ):
     """Class to attempt a single credential authentication.
     This function tries to authenticate using either a password or a keyfile.
@@ -71,7 +71,8 @@ async def try_single_credential(
                     port=port,
                     jumper=jumper,
                     key_objects=credential_store.key_objects,
-                    attempt_id=attempt_id
+                    attempt_id=attempt_id,
+                    proxy_url=proxy_url
                 )
 
                 if await asyncio.wait_for(
@@ -117,7 +118,8 @@ async def try_single_credential(
                     port=port,
                     jumper=jumper,
                     key_objects=credential_store.key_objects,
-                    attempt_id=attempt_id
+                    attempt_id=attempt_id,
+                    proxy_url=proxy_url
                 )
                 if await asyncio.wait_for(
                     ssh.connect(), timeout=CONFIG["scan_timeout"]
@@ -174,6 +176,7 @@ async def try_all(
     attempt_store=None,
     source_hostname=None,
     force_rescan=False,
+    proxy_url=None,
 ):
     """Try all combinations of users, passwords, and keyfiles against a target host.
 
@@ -273,6 +276,7 @@ async def try_all(
                 jumper=jumper,
                 credential_store=credential_store,
                 ssh_session_manager=ssh_session_manager,
+                proxy_url=proxy_url
             )
             
             # Record the attempt in the database (if enabled in config)
@@ -437,6 +441,7 @@ async def try_all(
                             jumper=jumper,
                             credential_store=credential_store,
                             ssh_session_manager=ssh_session_manager,
+                            proxy_url=proxy_url
                         ),
                         timeout=CONFIG["scan_timeout"] * 2  # Give fallback 2x normal timeout
                     )

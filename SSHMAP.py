@@ -83,6 +83,7 @@ async def handle_target(
     force_rescan=False,
     force_targets_mode=False,
     force_targets_ips=None,
+    proxy_url=None,
 ):
     try:
         if current_depth > max_depth:
@@ -100,8 +101,8 @@ async def handle_target(
 
         for port in ssh_ports:
             sshmap_logger.debug(f"Scanning {target} port {port}.")
-            # We can not check open ports if we are using a jump host, so we just try to connect to all ports
-            if current_depth > 1 or await check_open_port(target, port):
+            # We can not check open ports if we are using a jump host OR a proxy, so we just try to connect to all ports
+            if current_depth > 1 or proxy_url or await check_open_port(target, port):
                 sshmap_logger.debug(
                     f"[{target}] Port {port} is open, starting bruteforce..."
                 )
@@ -117,6 +118,7 @@ async def handle_target(
                     attempt_store=attempt_store,
                     source_hostname=source_host,
                     force_rescan=force_rescan,
+                    proxy_url=proxy_url,
                 )
                 for res in results:
                     if res.ssh_session:
@@ -232,7 +234,7 @@ async def handle_target(
         raise
 
 
-async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, whitelist_ips, force_targets_mode=False, force_targets_ips=None):
+async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, whitelist_ips, force_targets_mode=False, force_targets_ips=None, proxy_url=None):
     while True:
         try:
             target, depth, jumper = await queue.get()
@@ -249,6 +251,7 @@ async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, 
                     whitelist_ips=whitelist_ips,
                     force_targets_mode=force_targets_mode,
                     force_targets_ips=force_targets_ips,
+                    proxy_url=proxy_url,
                 )
 
         except asyncio.CancelledError:
@@ -312,7 +315,7 @@ async def async_main(args):
     )
     # Initialize SSHSSessionManager
     ssh_session_manager = SSHSessionManager(
-        graphdb=graph, credential_store=credential_store
+        graphdb=graph, credential_store=credential_store, proxy_url=args.proxy
     )
 
     # Handle --start-from option to start scanning from a remote host
@@ -396,6 +399,7 @@ async def async_main(args):
                             args.force_rescan,
                             force_targets_mode,
                             force_targets_ips,
+                            proxy_url=args.proxy,
                         )
 
                     if current_jump in task_ids:
@@ -463,6 +467,12 @@ def main():
     """,
         formatter_class=RawTextHelpFormatter,
     )
+    parser.add_argument(
+        "--proxy",
+        help="SOCKS5/HTTP proxy URL (e.g., socks5://127.0.0.1:9050)",
+        default=None
+    )
+    
     parser.add_argument(
         "--targets", required=True, help="Path to the file with target IPs or a direct IP/CIDR string"
     )

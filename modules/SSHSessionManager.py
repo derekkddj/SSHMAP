@@ -3,9 +3,10 @@ from .logger import sshmap_logger
 
 
 class SSHSessionManager:
-    def __init__(self, graphdb, credential_store):
+    def __init__(self, graphdb, credential_store, proxy_url=None):
         self.graphdb = graphdb
         self.credential_store = credential_store
+        self.proxy_url = proxy_url
         self.sessions = {}  # hostname -> SSHSession instance
 
     async def get_session(self, target_hostname, start_hostname) -> SSHSession:
@@ -47,6 +48,7 @@ class SSHSessionManager:
                 key_objects=key_object if key_object else None,
                 port=meta["port"],
                 jumper=previous_session,
+                proxy_url=self.proxy_url
             )
 
             sshmap_logger.info(f"Connecting to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}...")
