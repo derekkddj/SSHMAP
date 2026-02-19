@@ -189,6 +189,7 @@ async def get_remote_ip(ssh_client):
     if err or not out.strip():
         sshmap_logger.warning(f"`ip` command failed or missing: {err.strip()}")
     else:
+        sshmap_logger.debug(f"ip command output: {out}")
         cidrs = out.strip().split()
         for cidr in cidrs:
             if "/" in cidr and "127.0.0.1" not in cidr:
