@@ -155,7 +155,7 @@ async def get_remote_hostname(ssh_client):
         else:
             # hostname command returned empty - log warning but don't fall back to IP
             sshmap_logger.warning(
-                f"Hostname command returned empty for {ssh_client.host}, stderr: {err}"
+                f"Hostname command returned empty for {ssh_client.host}, stderr: {err}, stdout: {hostname}"
             )
             # Still try to return a valid hostname, use IP only as absolute last resort
             # For now, use IP but this indicates a problem
