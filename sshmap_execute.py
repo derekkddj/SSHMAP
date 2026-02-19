@@ -47,7 +47,7 @@ async def execute_command_on_host(
     """
     try:
         ssh_session_manager = SSHSessionManager(
-            graphdb=graph, credential_store=credential_store
+            graphdb=graph, credential_store=credential_store, proxy_url=args.proxy
         )
         host_ssh = await ssh_session_manager.get_session(target, local_hostname)
         if not host_ssh:
@@ -194,6 +194,11 @@ def main():
     )
     parser.add_argument(
         "--no-store", action="store_true", help="Do not store the output to a file"
+    )
+    parser.add_argument(
+        "--proxy",
+        help="SOCKS5/HTTP proxy URL (e.g., socks5://127.0.0.1:9050)",
+        default=None
     )
 
     args = parser.parse_args()

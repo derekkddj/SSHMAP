@@ -69,6 +69,7 @@ async def run_module_on_host(
     credential_store: CredentialStore,
     output_dir: str,
     registry: ModuleRegistry,
+    proxy_url: str = None,
 ):
     """Run a specific module on a single host."""
     try:
@@ -77,7 +78,7 @@ async def run_module_on_host(
         
         # Establish SSH connection
         ssh_session_manager = SSHSessionManager(
-            graphdb=graph, credential_store=credential_store
+            graphdb=graph, credential_store=credential_store, proxy_url=proxy_url
         )
         ssh_session = await ssh_session_manager.get_session(hostname, local_hostname)
         
@@ -185,6 +186,7 @@ async def async_main(args):
                     credential_store,
                     host_output_dir,
                     registry,
+                    proxy_url=args.proxy,
                 )
                 
                 progress.update(task, advance=1)
@@ -261,6 +263,12 @@ def main():
         "--verbose",
         action="store_true",
         help="Enable verbose output"
+    )
+
+    parser.add_argument(
+        "--proxy",
+        help="SOCKS5/HTTP proxy URL (e.g., socks5://127.0.0.1:9050)",
+        default=None
     )
     
     args = parser.parse_args()
