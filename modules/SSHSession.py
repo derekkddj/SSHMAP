@@ -240,28 +240,29 @@ class SSHSession:
                 # Open the session
                 # We use encoding=None to pass raw bytes if needed, but asyncssh usually expects strings for run unless requested otherwise.
                 # However, for an interactive shell, we usually want to connect streams.
-                # connection.run with no command starts the user's shell.
-                chan, session = await self.connection.create_session(
-                    asyncssh.SSHClientProcess,
+                # connection.create_process with no command starts the user's shell.
+                # We use create_process which handles stdin/stdout/stderr redirection properly
+                process = await self.connection.create_process(
                     term_type=term_type,
                     term_size=os.get_terminal_size(),
                     stdin=sys.stdin,
                     stdout=sys.stdout,
                     stderr=sys.stderr
                 )
-                await chan.wait_closed()
+                await process.wait()
                 
             finally:
                 # Restore terminal settings
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_tty_attrs)
         else:
             # Non-interactive (e.g. piped input)
-            await self.connection.run(
+            process = await self.connection.create_process(
                 term_type=term_type,
                 stdin=sys.stdin,
                 stdout=sys.stdout,
                 stderr=sys.stderr
             )
+            await process.wait()
 
     async def close(self):
         """Close the SSH connection."""
