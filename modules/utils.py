@@ -157,15 +157,29 @@ async def get_remote_hostname(ssh_client):
             else:
                 # hostname command returned empty
                 retry_delay = 0.2 if attempt == 0 else 1.0
-                sshmap_logger.debug(
-                    f"Hostname command returned empty for {ssh_client.host}, exit_status: {exit_status}, stderr: {err}, stdout: {hostname}. Attempt {attempt + 1}/{retries}. Retrying in {retry_delay}s..."
-                )
+                if attempt < retries - 1:
+                    # Keep logs quiet on transient retries (common right after connect)
+                    sshmap_logger.debug(
+                        f"Hostname not ready for {ssh_client.host} (attempt {attempt + 1}/{retries}), retrying in {retry_delay}s..."
+                    )
+                else:
+                    # Final failed attempt: include full details for troubleshooting
+                    sshmap_logger.debug(
+                        f"Hostname command returned empty for {ssh_client.host}, exit_status: {exit_status}, stderr: {err}, stdout: {hostname}. Attempt {attempt + 1}/{retries}."
+                    )
                 if attempt < retries - 1:
                     await asyncio.sleep(retry_delay)
                     continue
         except Exception as e:
             retry_delay = 0.2 if attempt == 0 else 1.0
-            sshmap_logger.warning(f"Error getting hostname on attempt {attempt + 1}: {e}. Retrying in {retry_delay}s...")
+            if attempt < retries - 1:
+                sshmap_logger.debug(
+                    f"Transient error getting hostname for {ssh_client.host} (attempt {attempt + 1}/{retries}), retrying in {retry_delay}s..."
+                )
+            else:
+                sshmap_logger.warning(
+                    f"Error getting hostname on final attempt {attempt + 1}/{retries}: {e}"
+                )
             if attempt < retries - 1:
                 await asyncio.sleep(retry_delay)
                 continue

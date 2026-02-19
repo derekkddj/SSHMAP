@@ -1,3 +1,4 @@
+import asyncio
 import asyncssh
 import logging
 from .logger import NXCAdapter
@@ -132,6 +133,20 @@ class SSHSession:
                         client_keys=None,
                         sock=sock
                     )
+
+            # Small stabilization delay so command channels are ready
+            await asyncio.sleep(0.1)
+
+            # Warm up command channel: some targets return exit_status -1 on first command
+            # immediately after connect. Run a cheap no-op a few times before hostname.
+            for _ in range(3):
+                try:
+                    warmup = await self.connection.run("true", check=False)
+                    if warmup.exit_status == 0:
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.15)
 
             self.remote_hostname = await get_remote_hostname(self)
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
