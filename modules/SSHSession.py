@@ -1,6 +1,10 @@
 import asyncio
 import asyncssh
 import logging
+import sys
+import os
+import tty
+import termios
 from .logger import NXCAdapter
 from .utils import get_remote_hostname, create_proxy_socket
 from .config import CONFIG
@@ -214,6 +218,50 @@ class SSHSession:
 
         result = await self.connection.run(command)
         return result.stdout, result.stderr, result.exit_status
+
+    async def interactive_shell(self):
+        """
+        Opens an interactive shell on the remote host.
+        Handles TTY raw mode if stdin is a terminal.
+        """
+        if self.connection is None:
+            raise ValueError("SSH connection is not established.")
+
+        term_type = os.environ.get('TERM', 'xterm')
+        
+        # Check if we are connected to a TTY
+        if sys.stdin.isatty():
+            # Save original terminal settings
+            old_tty_attrs = termios.tcgetattr(sys.stdin)
+            try:
+                # Set raw mode for true interactive feel (passes all keystrokes including Ctrl+C)
+                tty.setraw(sys.stdin)
+                
+                # Open the session
+                # We use encoding=None to pass raw bytes if needed, but asyncssh usually expects strings for run unless requested otherwise.
+                # However, for an interactive shell, we usually want to connect streams.
+                # connection.run with no command starts the user's shell.
+                chan, session = await self.connection.create_session(
+                    asyncssh.SSHClientProcess,
+                    term_type=term_type,
+                    term_size=os.get_terminal_size(),
+                    stdin=sys.stdin,
+                    stdout=sys.stdout,
+                    stderr=sys.stderr
+                )
+                await chan.wait_closed()
+                
+            finally:
+                # Restore terminal settings
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_tty_attrs)
+        else:
+            # Non-interactive (e.g. piped input)
+            await self.connection.run(
+                term_type=term_type,
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stderr=sys.stderr
+            )
 
     async def close(self):
         """Close the SSH connection."""

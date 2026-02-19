@@ -57,6 +57,11 @@ async def execute_command_on_host(
         sshmap_logger.display(
             f"SSH session established with {target} as {host_ssh.user}."
         )
+
+        if args.shell:
+            await host_ssh.interactive_shell()
+            return
+
         output = await host_ssh.exec_command(args.command)
         if not args.quiet:
             console.print(f"[green]Output from {target}:[/green]\n{output}")
@@ -201,6 +206,11 @@ def main():
         help="SOCKS5/HTTP proxy URL (e.g., socks5://127.0.0.1:9050)",
         default=None
     )
+    parser.add_argument(
+        "--shell",
+        action="store_true",
+        help="Open an interactive shell on the remote host (ignores --command)"
+    )
 
     args = parser.parse_args()
 
@@ -211,6 +221,19 @@ def main():
             f"Neo4J connectivity check failed, check if it is running: {e}"
         )
         return
+
+    if args.shell and args.all:
+        sshmap_logger.error("--shell cannot be used with --all. Please specify a single target with --hostname.")
+        return
+
+    if args.shell and not args.hostname:
+        sshmap_logger.error("--shell requires --hostname.")
+        return
+
+    if not args.shell and not args.command:
+         sshmap_logger.error("--command is required unless --shell is specified.")
+         return
+
     asyncio.run(async_main(args))
 
 
