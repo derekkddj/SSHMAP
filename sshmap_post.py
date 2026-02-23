@@ -72,6 +72,7 @@ async def run_module_on_host(
     proxy_url: str = None,
 ):
     """Run a specific module on a single host."""
+    ssh_session_manager = None
     try:
         # Get the module
         module = registry.get_module(module_name)
@@ -98,6 +99,9 @@ async def run_module_on_host(
     except Exception as e:
         sshmap_logger.error(f"Failed to run module {module_name} on {hostname}: {e}")
         return {"success": False, "error": str(e)}
+    finally:
+        if ssh_session_manager:
+            await ssh_session_manager.close_all()
 
 
 async def async_main(args):
@@ -170,14 +174,21 @@ async def async_main(args):
         disable=not console.is_terminal,
     )
     
-    # Run modules on each host
+    # Build all jobs first (module x host)
+    jobs = []
     with progress:
         for hostname in hostnames:
             for module_name in modules_to_run:
                 task = progress.add_task(
                     f"[cyan]{module_name} on {hostname}", total=1
                 )
-                
+                jobs.append((hostname, module_name, task))
+
+        max_concurrent = max(1, args.max_concurrent)
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def run_job(hostname: str, module_name: str, task_id: int):
+            async with semaphore:
                 result = await run_module_on_host(
                     module_name,
                     hostname,
@@ -187,9 +198,9 @@ async def async_main(args):
                     registry,
                     proxy_url=args.proxy,
                 )
-                
-                progress.update(task, advance=1)
-                
+
+                progress.update(task_id, advance=1)
+
                 if result["success"]:
                     progress.console.print(
                         f"[green]✓[/green] {module_name} completed on {hostname}"
@@ -198,6 +209,10 @@ async def async_main(args):
                     progress.console.print(
                         f"[red]✗[/red] {module_name} failed on {hostname}: {result.get('error', 'Unknown error')}"
                     )
+
+        await asyncio.gather(
+            *(run_job(hostname, module_name, task_id) for hostname, module_name, task_id in jobs)
+        )
     
     console.print("\n[green]Post-exploitation completed![/green]")
     console.print(f"Results saved in: {base_output_dir}")
@@ -268,6 +283,13 @@ def main():
         "--proxy",
         help="SOCKS5/HTTP proxy URL (e.g., socks5://127.0.0.1:9050)",
         default=None
+    )
+
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=10,
+        help="Maximum number of concurrent module executions (default: 10)",
     )
     
     args = parser.parse_args()
