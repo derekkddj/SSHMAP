@@ -173,10 +173,6 @@ async def async_main(args):
     # Run modules on each host
     with progress:
         for hostname in hostnames:
-            # Create hostname-specific output directory
-            host_output_dir = os.path.join(base_output_dir, hostname)
-            os.makedirs(host_output_dir, exist_ok=True)
-            
             for module_name in modules_to_run:
                 task = progress.add_task(
                     f"[cyan]{module_name} on {hostname}", total=1
@@ -187,7 +183,7 @@ async def async_main(args):
                     hostname,
                     local_hostname,
                     credential_store,
-                    host_output_dir,
+                    base_output_dir,
                     registry,
                     proxy_url=args.proxy,
                 )
