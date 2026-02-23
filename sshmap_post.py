@@ -166,6 +166,8 @@ async def async_main(args):
         BarColumn(),
         "[{task.completed}/{task.total}]",
         TimeElapsedColumn(),
+        console=console,
+        disable=not console.is_terminal,
     )
     
     # Run modules on each host
@@ -193,15 +195,15 @@ async def async_main(args):
                 progress.update(task, advance=1)
                 
                 if result["success"]:
-                    console.print(
+                    progress.console.print(
                         f"[green]✓[/green] {module_name} completed on {hostname}"
                     )
                 else:
-                    console.print(
+                    progress.console.print(
                         f"[red]✗[/red] {module_name} failed on {hostname}: {result.get('error', 'Unknown error')}"
                     )
     
-    console.print(f"\n[green]Post-exploitation completed![/green]")
+    console.print("\n[green]Post-exploitation completed![/green]")
     console.print(f"Results saved in: {base_output_dir}")
 
 

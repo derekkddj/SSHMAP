@@ -58,6 +58,7 @@ class SSHSession:
 
     async def connect(self):
         """Connect to the host using asyncssh."""
+        attempt_prefix = f"[{self.attempt_id}] " if self.attempt_id is not None else ""
         try:
             # Direct connection or via jumper (proxy)
             if self.jumper:
@@ -156,7 +157,7 @@ class SSHSession:
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
             self.sshmap_logger.success(
-                f"[{self.attempt_id}] {self.user}:{cred_display} (hostname:{self.remote_hostname})"
+                f"{attempt_prefix}{self.user}:{cred_display} (hostname:{self.remote_hostname})"
             )
             return True
 
@@ -164,7 +165,7 @@ class SSHSession:
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
             self.sshmap_logger.fail(
-                f"[{self.attempt_id}] {self.user}:{cred_display}"
+                f"{attempt_prefix}{self.user}:{cred_display}"
             )
             return False
         except asyncssh.ChannelOpenError as e:
@@ -172,7 +173,7 @@ class SSHSession:
             cred_display = self.password if self.password else keyfile_display
             jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
             self.sshmap_logger.info(
-                f"[{self.attempt_id}] {self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - ChannelOpenError: {e.reason}"
+                f"{attempt_prefix}{self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - ChannelOpenError: {e.reason}"
             )
             return False
         except asyncssh.ConnectionLost as e: # aqui aparecen muchos casos cuando hay mucha sobrecarga
@@ -181,7 +182,7 @@ class SSHSession:
             cred_display = self.password if self.password else keyfile_display
             jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
             self.sshmap_logger.warning(
-                f"[{self.attempt_id}] {self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - ConnectionLost: {e}"
+                f"{attempt_prefix}{self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - ConnectionLost: {e}"
             )
             raise
         except Exception as e:
@@ -189,7 +190,7 @@ class SSHSession:
             cred_display = self.password if self.password else keyfile_display
             jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
             self.sshmap_logger.error(
-                f"[{self.attempt_id}] {self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - {type(e).__name__}: {e}"
+                f"{attempt_prefix}{self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - {type(e).__name__}: {e}"
             )
             self.connection = None
             return False
