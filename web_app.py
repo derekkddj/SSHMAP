@@ -14,6 +14,7 @@ from modules.config import CONFIG
 from modules.credential_store import CredentialStore
 from modules.SSHSessionManager import SSHSessionManager
 from modules.logger import sshmap_logger
+from modules.utils import sanitize_filename_component
 import html
 import asyncio
 import subprocess
@@ -531,8 +532,11 @@ async def execute_command_async(hostname, command):
         }
         
     except Exception as e:
-        error_msg = f"Failed to execute command on {hostname}: {type(e).__name__} - {str(e)}"
-        sshmap_logger.error(error_msg)
+                    safe_hostname = sanitize_filename_component(hostname)
+                    safe_command = sanitize_filename_component(command[:10])
+                    output_filename = os.path.join(
+                        'output', f"{currenttime}_{safe_hostname}_{safe_command}.txt"
+                    )
         return {
             'success': False,
             'error': error_msg

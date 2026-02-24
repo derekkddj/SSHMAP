@@ -18,6 +18,7 @@ from rich.live import Live
 from modules.console import nxc_console
 from modules.SSHSessionManager import SSHSessionManager
 from modules.credential_store import CredentialStore
+from modules.utils import sanitize_filename_component
 import subprocess
 
 console = nxc_console
@@ -69,9 +70,12 @@ async def execute_command_on_host(
         # Create output directory if it doesn't exist
         if not args.no_store:
             os.makedirs(args.output, exist_ok=True)
-            # Trim "command" to only 10, and change space to underscore
-            command_trimmed = args.command[:10].replace(" ", "_")
-            output_filename = f"{args.output}/{currenttime}_{target}_{command_trimmed}.txt"
+            # Keep outputs in the same folder even if hostname/command contains path separators.
+            safe_target = sanitize_filename_component(target)
+            safe_command = sanitize_filename_component(args.command[:10])
+            output_filename = os.path.join(
+                args.output, f"{currenttime}_{safe_target}_{safe_command}.txt"
+            )
             with open(output_filename, "w") as f:
                 f.write(f"Output from {target}:\n")
                 f.write(f"Executed command: {args.command}\n\n")

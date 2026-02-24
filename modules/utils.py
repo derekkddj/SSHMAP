@@ -2,11 +2,43 @@ import socket
 import os
 import psutil
 import ipaddress
+import re
 from .logger import sshmap_logger
 from .config import CONFIG
 import asyncio
 import asyncssh
 import socks  # PySocks
+
+
+_SAFE_FILENAME_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def sanitize_filename_component(value: str, default: str = "unknown", max_len: int = 128) -> str:
+    """Sanitize an arbitrary string for safe use as a single filename component.
+
+    This prevents accidental directory creation when values contain path separators
+    (e.g., hostnames like "10.0.0.0/24") and improves cross-platform safety.
+    """
+    if value is None:
+        return default
+
+    text = str(value).strip()
+    if not text:
+        return default
+
+    # Replace any disallowed run with underscore.
+    text = _SAFE_FILENAME_COMPONENT_RE.sub("_", text)
+
+    # Collapse/trim underscores and dots/spaces.
+    text = re.sub(r"_+", "_", text).strip(" _.")
+    if not text:
+        return default
+
+    if max_len and len(text) > max_len:
+        text = text[:max_len].rstrip(" _.")
+        return text if text else default
+
+    return text
 
 def create_proxy_socket(proxy_url, target_host, target_port):
     """
