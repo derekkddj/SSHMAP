@@ -1,5 +1,6 @@
 from .SSHSession import SSHSession
 from .logger import sshmap_logger
+import asyncio
 
 
 class SSHSessionManager:
@@ -14,7 +15,9 @@ class SSHSessionManager:
         Returns a connected session to the target_hostname starting from start_hostname.
         Builds the jump chain as needed and caches sessions by (hostname, user, method, creds).
         """
-        path = self.graphdb.find_path(start_hostname, target_hostname)
+        # GraphDB uses the synchronous Neo4j driver; run path lookup off the event loop
+        # so multiple hosts can be processed concurrently.
+        path = await asyncio.to_thread(self.graphdb.find_path, start_hostname, target_hostname)
         if not path:
             sshmap_logger.error(f"No path found from {start_hostname} to {target_hostname}")
             return None

@@ -507,8 +507,11 @@ async def execute_command_async(hostname, command):
         # Save output to file
         currenttime = datetime.now().strftime('%Y%m%d_%H%M%S')
         os.makedirs('output', exist_ok=True)
-        command_trimmed = command[:10].replace(" ", "_").replace("/", "_")
-        output_filename = f"output/{currenttime}_{hostname}_{command_trimmed}.txt"
+        safe_hostname = sanitize_filename_component(hostname)
+        safe_command = sanitize_filename_component(command[:10])
+        output_filename = os.path.join(
+            'output', f"{currenttime}_{safe_hostname}_{safe_command}.txt"
+        )
         
         try:
             with open(output_filename, 'w') as f:
@@ -532,11 +535,8 @@ async def execute_command_async(hostname, command):
         }
         
     except Exception as e:
-                    safe_hostname = sanitize_filename_component(hostname)
-                    safe_command = sanitize_filename_component(command[:10])
-                    output_filename = os.path.join(
-                        'output', f"{currenttime}_{safe_hostname}_{safe_command}.txt"
-                    )
+        error_msg = f"Failed to execute command on {hostname}: {type(e).__name__} - {str(e)}"
+        sshmap_logger.error(error_msg)
         return {
             'success': False,
             'error': error_msg

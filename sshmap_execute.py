@@ -194,7 +194,10 @@ def main():
     )
     parser.add_argument("--verbose", action="store_true", help="enable verbose output")
     parser.add_argument(
-        "--maxworkers", type=int, default=1, help="Number of workers for target"
+        "--maxworkers",
+        type=int,
+        default=1,
+        help="Number of concurrent workers when using --all (default: 1)",
     )
     parser.add_argument(
         "--output", type=str, default="output", help="Path to output folder"
