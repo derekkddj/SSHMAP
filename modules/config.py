@@ -27,6 +27,10 @@ class Config:
                 "scan_timeout": 10,
                 "brute_new_credentials": False,
                 "record_connection_attempts": True,
+                # ntfy push notifications (disabled by default)
+                "ntfy_url": "",
+                "ntfy_topic": "",
+                "ntfy_token": "",
             }
             with open(path, "w") as f:
                 yaml.dump(self._config, f)
