@@ -541,6 +541,34 @@
             border-color: #6a7cf6;
         }
 
+        .toolbar-btn:focus-visible,
+        .search-container input:focus-visible,
+        .path-inputs input:focus-visible,
+        .btn:focus-visible,
+        .layout-btn:focus-visible,
+        .sidebar-toggle:focus-visible {
+            outline: 2px solid #6a7cf6;
+            outline-offset: 2px;
+        }
+
+        .graph-status {
+            margin-left: auto;
+            color: #9ca3af;
+            font-size: 12px;
+            background: #2b2d31;
+            border: 1px solid #3a3c41;
+            border-radius: 999px;
+            padding: 6px 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .graph-status strong {
+            color: #e0e0e0;
+            font-weight: 600;
+        }
+
         .graph-container {
             flex: 1;
             background: #1e1f22;
@@ -893,6 +921,99 @@
             color: #999;
             margin-left: 5px;
         }
+
+        .layout-buttons-vertical {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .layout-buttons-vertical .layout-btn {
+            justify-content: flex-start;
+            width: 100%;
+        }
+
+        .filter-subsection {
+            margin-bottom: 14px;
+        }
+
+        .filter-subsection h5 {
+            color: #d1d5db;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 8px;
+        }
+
+        .info-text {
+            color: #9ca3af;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .shortcuts-hint {
+            margin-top: 12px;
+            font-size: 11px;
+            color: #6b7280;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 1200px) {
+            .left-sidebar {
+                width: 280px;
+            }
+
+            .left-sidebar.collapsed {
+                margin-left: -280px;
+            }
+
+            .right-sidebar {
+                width: 320px;
+            }
+
+            .right-sidebar.collapsed {
+                margin-right: -320px;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .left-sidebar,
+            .right-sidebar {
+                position: fixed;
+                top: 0;
+                bottom: 0;
+                z-index: 1100;
+            }
+
+            .left-sidebar {
+                left: 0;
+                width: min(85vw, 320px);
+            }
+
+            .left-sidebar.collapsed {
+                margin-left: calc(-1 * min(85vw, 320px));
+            }
+
+            .right-sidebar {
+                right: 0;
+                width: min(90vw, 380px);
+            }
+
+            .right-sidebar.collapsed {
+                margin-right: calc(-1 * min(90vw, 380px));
+            }
+
+            .graph-toolbar {
+                flex-wrap: wrap;
+            }
+
+            .graph-status {
+                width: 100%;
+                justify-content: center;
+                margin-left: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1004,6 +1125,9 @@
                 <button class="toolbar-btn" onclick="loadGraph()" title="Reload graph">
                     🔄 Reload
                 </button>
+                <div class="graph-status" id="graphStatus" aria-live="polite">
+                    <strong>0</strong> nodes • <strong>0</strong> edges
+                </div>
             </div>
             <div class="graph-container">
                 <div id="loading" class="loading">
@@ -1026,6 +1150,10 @@
                     Click on an edge to see connection details.<br><br>
                     Use the search bar to filter the graph.<br><br>
                     Use the path finder to discover routes between hosts.
+                </p>
+                <p class="shortcuts-hint">
+                    Shortcuts: <strong>/</strong> search, <strong>R</strong> reload, <strong>F</strong> fit,
+                    <strong>L</strong>/<strong>D</strong> toggle sidebars, <strong>Esc</strong> close overlays.
                 </p>
             </div>
         </div>

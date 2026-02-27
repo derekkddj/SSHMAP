@@ -13,13 +13,16 @@ let filterState = {
 };
 let uniqueUsers = new Set();
 let uniqueMethods = new Set();
+let mobileUiInitialized = false;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     initNetwork();
+    initializeResponsiveUI();
     loadGraph();
     loadHostnames();
     setupEventListeners();
+    updateGraphStatus(0, 0);
 });
 
 // Initialize the vis.js network
@@ -32,13 +35,17 @@ function initNetwork() {
     
     const options = getLayoutOptions(currentLayout);
     network = new vis.Network(container, data, options);
-    
+
+    bindNetworkEvents(container);
+}
+
+function bindNetworkEvents(container) {
     // Prevent default browser context menu
     container.addEventListener('contextmenu', function(event) {
         event.preventDefault();
         return false;
     });
-    
+
     // Event listeners for node/edge selection
     network.on('selectNode', function(params) {
         if (params.nodes.length > 0) {
@@ -46,29 +53,29 @@ function initNetwork() {
             loadNodeDetails(nodeId);
         }
     });
-    
+
     network.on('selectEdge', function(params) {
         if (params.edges.length > 0) {
             const edgeId = params.edges[0];
             loadEdgeDetails(edgeId);
         }
     });
-    
+
     network.on('deselectNode', function() {
         showDefaultInfo();
     });
-    
+
     network.on('deselectEdge', function() {
         showDefaultInfo();
     });
-    
+
     // Context menu on right-click
     network.on('oncontext', function(params) {
         params.event.preventDefault();
-        
+
         const nodeId = network.getNodeAt(params.pointer.DOM);
         const edgeId = network.getEdgeAt(params.pointer.DOM);
-        
+
         if (nodeId) {
             showContextMenu(params.event, nodeId, null);
         } else if (edgeId) {
@@ -746,51 +753,8 @@ function changeLayout(layoutType) {
     
     const options = getLayoutOptions(layoutType);
     network = new vis.Network(container, data, options);
-    
-    // Prevent default browser context menu
-    container.addEventListener('contextmenu', function(event) {
-        event.preventDefault();
-        return false;
-    });
-    
-    // Reattach event listeners
-    network.on('selectNode', function(params) {
-        if (params.nodes.length > 0) {
-            const nodeId = params.nodes[0];
-            loadNodeDetails(nodeId);
-        }
-    });
-    
-    network.on('selectEdge', function(params) {
-        if (params.edges.length > 0) {
-            const edgeId = params.edges[0];
-            loadEdgeDetails(edgeId);
-        }
-    });
-    
-    network.on('deselectNode', function() {
-        showDefaultInfo();
-    });
-    
-    network.on('deselectEdge', function() {
-        showDefaultInfo();
-    });
-    
-    // Context menu on right-click
-    network.on('oncontext', function(params) {
-        params.event.preventDefault();
-        
-        const nodeId = network.getNodeAt(params.pointer.DOM);
-        const edgeId = network.getEdgeAt(params.pointer.DOM);
-        
-        if (nodeId) {
-            showContextMenu(params.event, nodeId, null);
-        } else if (edgeId) {
-            showContextMenu(params.event, null, edgeId);
-        } else {
-            hideContextMenu();
-        }
-    });
+
+    bindNetworkEvents(container);
     
     // Update UI to show active layout
     document.querySelectorAll('.layout-btn').forEach(btn => {
@@ -1009,6 +973,15 @@ function showLoading(show) {
 function updateStats(nodeCount, edgeCount) {
     document.getElementById('nodeCount').textContent = nodeCount;
     document.getElementById('edgeCount').textContent = edgeCount;
+    updateGraphStatus(nodeCount, edgeCount);
+}
+
+function updateGraphStatus(nodeCount, edgeCount) {
+    const status = document.getElementById('graphStatus');
+    if (!status) {
+        return;
+    }
+    status.innerHTML = `<strong>${nodeCount}</strong> nodes • <strong>${edgeCount}</strong> edges`;
 }
 
 // Show error message
@@ -1133,6 +1106,85 @@ function setupEventListeners() {
             findPath();
         }
     });
+
+    window.addEventListener('resize', function() {
+        initializeResponsiveUI();
+    });
+
+    document.addEventListener('keydown', function(e) {
+        if (isTypingField(e.target)) {
+            if (e.key === 'Escape') {
+                searchResults.style.display = 'none';
+                hideContextMenu();
+            }
+            return;
+        }
+
+        const key = e.key.toLowerCase();
+        if (e.key === '/') {
+            e.preventDefault();
+            searchInput.focus();
+            searchInput.select();
+            return;
+        }
+
+        if (e.key === 'Escape') {
+            searchResults.style.display = 'none';
+            hideContextMenu();
+            network.unselectAll();
+            showDefaultInfo();
+            return;
+        }
+
+        if (key === 'r') {
+            loadGraph();
+            return;
+        }
+
+        if (key === 'f' && network) {
+            network.fit();
+            return;
+        }
+
+        if (key === 'l') {
+            toggleSidebar('left');
+            return;
+        }
+
+        if (key === 'd') {
+            toggleSidebar('right');
+        }
+    });
+}
+
+function initializeResponsiveUI() {
+    if (window.innerWidth > 900 || mobileUiInitialized) {
+        return;
+    }
+
+    const leftSidebar = document.getElementById('leftSidebar');
+    const rightSidebar = document.getElementById('rightSidebar');
+    const leftFloatingBtn = document.getElementById('floatingLeftToggle');
+    const rightFloatingBtn = document.getElementById('floatingRightToggle');
+
+    if (!leftSidebar.classList.contains('collapsed')) {
+        leftSidebar.classList.add('collapsed');
+        leftFloatingBtn.classList.add('visible');
+    }
+
+    if (!rightSidebar.classList.contains('collapsed')) {
+        rightSidebar.classList.add('collapsed');
+        rightFloatingBtn.classList.add('visible');
+    }
+
+    mobileUiInitialized = true;
+}
+
+function isTypingField(target) {
+    if (!target) {
+        return false;
+    }
+    return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 }
 
 // Search with popup results
@@ -1382,38 +1434,6 @@ function showContextMenu(event, nodeId, edgeId) {
     // Build menu content based on type
     let menuHTML = '';
    
-    if (contextMenuType === 'node') {
-        // Node context menu
-        menuHTML = `
-            <div class="context-menu-item" onclick="contextMenuAction('focus')">
-                <span>🎯</span> Focus on this
-            </div>
-            <div class="context-menu-divider"></div>
-            <div class="context-menu-item" onclick="contextMenuAction('start')">
-                <span>🏁</span> Start from here
-            </div>
-            <div class="context-menu-item" onclick="contextMenuAction('end')">
-                <span>🏁</span> End here
-            </div>
-            <div class="context-menu-divider"></div>
-            <div class="context-menu-item danger" onclick="contextMenuAction('delete')">
-                <span>🗑️</span> Delete from database
-            </div>
-        `;
-    } else {
-        // Edge context menu
-        menuHTML = `
-            <div class="context-menu-item" onclick="contextMenuAction('focus')">
-                <span>🎯</span> Focus on this
-            </div>
-            <div class="context-menu-divider"></div>
-            <div class="context-menu-item danger" onclick="contextMenuAction('delete')">
-                <span>🗑️</span> Delete from database
-            </div>
-        `;
-    }
-    
-    menu.innerHTML = menuHTML;
     if (contextMenuType === 'node') {
         // Node context menu
         menuHTML = `
