@@ -974,6 +974,7 @@ function updateStats(nodeCount, edgeCount) {
     document.getElementById('nodeCount').textContent = nodeCount;
     document.getElementById('edgeCount').textContent = edgeCount;
     updateGraphStatus(nodeCount, edgeCount);
+    updateInsights(nodes.get(), edges.get());
 }
 
 function updateGraphStatus(nodeCount, edgeCount) {
@@ -982,6 +983,74 @@ function updateGraphStatus(nodeCount, edgeCount) {
         return;
     }
     status.innerHTML = `<strong>${nodeCount}</strong> nodes • <strong>${edgeCount}</strong> edges`;
+}
+
+function updateInsights(visibleNodes, visibleEdges) {
+    const panel = document.getElementById('insightsPanel');
+    if (!panel) {
+        return;
+    }
+
+    if (!visibleEdges || visibleEdges.length === 0) {
+        panel.innerHTML = `
+            <div class="insight-item">
+                <h6>No active connections</h6>
+                <p>Adjust filters or reload to view insights.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const nodeNameById = new Map((visibleNodes || []).map(node => [node.id, node.hostname || node.label || String(node.id)]));
+    const incoming = {};
+    const outgoing = {};
+    const users = {};
+    const methods = {};
+
+    visibleEdges.forEach(edge => {
+        incoming[edge.to] = (incoming[edge.to] || 0) + 1;
+        outgoing[edge.from] = (outgoing[edge.from] || 0) + 1;
+        users[edge.user] = (users[edge.user] || 0) + 1;
+        methods[edge.method] = (methods[edge.method] || 0) + 1;
+    });
+
+    const topTargetId = getTopKey(incoming);
+    const topPivotId = getTopKey(outgoing);
+    const topUser = getTopKey(users);
+    const topMethod = getTopKey(methods);
+
+    const targetName = topTargetId !== null ? (nodeNameById.get(Number(topTargetId)) || nodeNameById.get(topTargetId) || 'Unknown host') : 'N/A';
+    const pivotName = topPivotId !== null ? (nodeNameById.get(Number(topPivotId)) || nodeNameById.get(topPivotId) || 'Unknown host') : 'N/A';
+
+    panel.innerHTML = `
+        <div class="insight-item">
+            <h6>Most targeted host</h6>
+            <p>${escapeHtml(targetName)}</p>
+            <div class="muted">${topTargetId !== null ? incoming[topTargetId] : 0} incoming connection(s)</div>
+        </div>
+        <div class="insight-item">
+            <h6>Best pivot candidate</h6>
+            <p>${escapeHtml(pivotName)}</p>
+            <div class="muted">${topPivotId !== null ? outgoing[topPivotId] : 0} outgoing connection(s)</div>
+        </div>
+        <div class="insight-item">
+            <h6>Most used account/method</h6>
+            <p>${escapeHtml(topUser || 'N/A')} via ${escapeHtml(topMethod || 'N/A')}</p>
+            <div class="muted">Based on currently visible edges</div>
+        </div>
+    `;
+}
+
+function getTopKey(counter) {
+    let bestKey = null;
+    let bestValue = -1;
+    Object.keys(counter).forEach(key => {
+        if (counter[key] > bestValue) {
+            bestValue = counter[key];
+            bestKey = key;
+        }
+    });
+    return bestKey;
 }
 
 // Show error message
@@ -993,6 +1062,31 @@ function showError(message) {
             ${escapeHtml(message)}
         </div>
     `;
+}
+
+function exportGraphJSON() {
+    fetch('/api/export')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showError('Export failed: ' + data.error);
+                return;
+            }
+
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sshmap-export-${timestamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        })
+        .catch(error => {
+            showError('Export failed: ' + error.message);
+        });
 }
 
 // Execute command on target host

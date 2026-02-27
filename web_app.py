@@ -26,22 +26,31 @@ from datetime import datetime
 # Try multiple locations to find the files
 def find_resource_dir(dirname):
     """Find the directory containing web resources (templates/static)"""
+    expected_files = {
+        'templates': ['index.html'],
+        'static': [os.path.join('css', 'style.css'), os.path.join('js', 'app.js')]
+    }
+
+    def has_expected_files(base_path):
+        files = expected_files.get(dirname, [])
+        return all(os.path.exists(os.path.join(base_path, rel_path)) for rel_path in files)
+
     # Try current directory (development)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(current_dir, dirname)
-    if os.path.exists(path):
+    if os.path.exists(path) and has_expected_files(path):
         return path
     
     # Try sys.prefix (pipx installation)
     path = os.path.join(sys.prefix, 'sshmap', dirname)
-    if os.path.exists(path):
+    if os.path.exists(path) and has_expected_files(path):
         return path
     
     # Try site-packages location
     import site
     for site_dir in site.getsitepackages() + [site.getusersitepackages()]:
         path = os.path.join(site_dir, dirname)
-        if os.path.exists(path):
+        if os.path.exists(path) and has_expected_files(path):
             return path
     
     # Fallback to current directory
@@ -131,6 +140,66 @@ def get_graph():
                     })
 
         return jsonify({
+            'nodes': nodes,
+            'edges': edges
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/export')
+def export_graph():
+    """Export full graph as JSON for offline analysis or reporting."""
+    try:
+        hosts = db.get_all_hosts_detailed()
+        nodes = []
+        for host in hosts:
+            nodes.append({
+                'id': host['id'],
+                'hostname': host['hostname'],
+                'interfaces': host['interfaces']
+            })
+
+        edges = []
+        with db.driver.session() as session:
+            result = session.run("""
+                MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
+                RETURN id(r) AS edge_id,
+                       id(a) AS from_id,
+                       id(b) AS to_id,
+                       a.hostname AS from_hostname,
+                       b.hostname AS to_hostname,
+                       r.user AS user,
+                       r.method AS method,
+                       r.creds AS creds,
+                       r.ip AS ip,
+                       r.port AS port,
+                       r.time AS time
+            """)
+
+            for record in result:
+                time_value = record['time']
+                if hasattr(time_value, 'isoformat'):
+                    time_value = time_value.isoformat()
+
+                edges.append({
+                    'id': record['edge_id'],
+                    'from': record['from_id'],
+                    'to': record['to_id'],
+                    'from_hostname': record['from_hostname'],
+                    'to_hostname': record['to_hostname'],
+                    'user': record['user'],
+                    'method': record['method'],
+                    'creds': record['creds'],
+                    'ip': record['ip'],
+                    'port': record['port'],
+                    'time': time_value
+                })
+
+        return jsonify({
+            'exported_at': datetime.utcnow().isoformat() + 'Z',
+            'node_count': len(nodes),
+            'edge_count': len(edges),
             'nodes': nodes,
             'edges': edges
         })

@@ -156,6 +156,19 @@
             object-fit: contain;
         }
 
+        .sidebar-logo-fallback {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #2b2d31;
+            border: 1px solid #3a3c41;
+            color: #6a7cf6;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
         .sidebar-header h2 {
             color: #6a7cf6;
             font-size: 16px;
@@ -959,6 +972,40 @@
             line-height: 1.5;
         }
 
+        .insight-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .insight-item {
+            background: #2b2d31;
+            border: 1px solid #3a3c41;
+            border-left: 3px solid #6a7cf6;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .insight-item h6 {
+            font-size: 11px;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-bottom: 4px;
+        }
+
+        .insight-item p {
+            color: #e0e0e0;
+            font-size: 12px;
+            word-break: break-word;
+        }
+
+        .insight-item .muted {
+            color: #6b7280;
+            font-size: 11px;
+            margin-top: 4px;
+        }
+
         @media (max-width: 1200px) {
             .left-sidebar {
                 width: 280px;
@@ -1021,7 +1068,11 @@
         <!-- Left Sidebar - Controls -->
         <div class="left-sidebar" id="leftSidebar">
             <div class="sidebar-header">
-                <h1><img src="{{ url_for('static', filename='Logonew.png') }}" alt="SSHMAP Logo" class="sidebar-logo"> SSHMAP</h1>
+                <h1>
+                    <img src="{{ url_for('static', filename='Logonew.png') }}" alt="SSHMAP Logo" class="sidebar-logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-flex';">
+                    <span class="sidebar-logo-fallback" style="display:none;">🔐</span>
+                    SSHMAP
+                </h1>
                 <button class="sidebar-toggle" onclick="toggleSidebar('left')">☰</button>
             </div>
 
@@ -1111,6 +1162,17 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Insights Section -->
+            <div class="sidebar-section">
+                <div class="section-header">🧠 Interesting Insights</div>
+                <div class="insight-list" id="insightsPanel">
+                    <div class="insight-item">
+                        <h6>Waiting for graph</h6>
+                        <p>Load data to generate quick insights.</p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Main Graph Area -->
@@ -1124,6 +1186,9 @@
                 </button>
                 <button class="toolbar-btn" onclick="loadGraph()" title="Reload graph">
                     🔄 Reload
+                </button>
+                <button class="toolbar-btn" onclick="exportGraphJSON()" title="Download current graph as JSON">
+                    ⬇️ Export JSON
                 </button>
                 <div class="graph-status" id="graphStatus" aria-live="polite">
                     <strong>0</strong> nodes • <strong>0</strong> edges

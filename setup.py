@@ -10,10 +10,11 @@ setup(
     # Include non-Python files
     include_package_data=True,
     package_data={
-        '': ['templates/*.html', 'static/css/*.css', 'static/js/*.js'],
+        '': ['templates/*.html', 'static/css/*.css', 'static/js/*.js', 'static/*.png', 'static/*.svg'],
     },
     data_files=[
         ('sshmap/templates', ['templates/index.html']),
+        ('sshmap/static', ['static/Logonew.png']),
         ('sshmap/static/css', ['static/css/style.css']),
         ('sshmap/static/js', ['static/js/app.js']),
     ],
