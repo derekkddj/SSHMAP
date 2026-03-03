@@ -52,7 +52,7 @@ def normalize_command_output(output: str) -> str:
     return normalized
 
 async def execute_command_on_host(
-    args, target, local_hostname, credential_store, task_id
+    args, target, local_hostname, credential_store, task_id, defer_output=False
 ):
     """
     Executes the specified command on the target host using SSH.
@@ -77,7 +77,7 @@ async def execute_command_on_host(
 
         output = await host_ssh.exec_command(args.command)
         output = normalize_command_output(output)
-        if not args.quiet:
+        if not args.quiet and not defer_output:
             progress.console.print(f"[green]Output from {target}:[/green]\n{output}")
         # Now save the output to a file, each host gets its own file with the date and time
         # Create output directory if it doesn't exist
@@ -94,8 +94,10 @@ async def execute_command_on_host(
                 f.write(f"Executed command: {args.command}\n\n")
                 f.write(output)
         
+        return output
     except Exception as e:
         sshmap_logger.error(f"Failed to execute command on {target}: {e}")
+        return None
     finally:
         if task_id is not None:
             # Update the progress bar for this task
@@ -133,28 +135,44 @@ async def async_main(args):
             queue = asyncio.Queue()
             task_ids = {}
             targets = [t["hostname"] for t in hosts if t["hostname"] != local_hostname]
+            if not targets:
+                sshmap_logger.warning("No remote targets found after excluding local host.")
+                return
+
+            worker_count = args.maxworkers if args.maxworkers is not None else min(10, len(targets))
+            if worker_count < 1:
+                worker_count = 1
+
+            sshmap_logger.display(
+                f"Using {worker_count} worker(s) for {len(targets)} target(s)."
+            )
+
             for target in targets:
                 await queue.put((target, 1, None))
             task_ids[args.command] = progress.add_task(
-                description=f"Executing on {target}",
+                description="Executing command on targets",
                 total=len(targets),
                 jump_host=args.command,
             )
 
-            semaphore = asyncio.Semaphore(args.maxworkers)
+            semaphore = asyncio.Semaphore(worker_count)
+            buffered_outputs = {}
 
             async def tracked_worker():
                 while True:
                     try:
                         hostname, _, _ = await queue.get()
                         async with semaphore:
-                            await execute_command_on_host(
+                            output = await execute_command_on_host(
                                 args,
                                 hostname,
                                 local_hostname,
                                 credential_store,
                                 None,
+                                defer_output=not args.quiet,
                             )
+                        if output is not None and not args.quiet:
+                            buffered_outputs[hostname] = output
                         if args.command in task_ids:
                             progress.update(task_ids[args.command], advance=1)
                     except asyncio.CancelledError:
@@ -165,7 +183,7 @@ async def async_main(args):
             with Live(progress, console=console, refresh_per_second=10):
                 workers = [
                     asyncio.create_task(tracked_worker())
-                    for _ in range(args.maxworkers)
+                    for _ in range(worker_count)
                 ]
                 try:
                     await queue.join()
@@ -175,6 +193,13 @@ async def async_main(args):
                     for w in workers:
                         w.cancel()
                     await asyncio.gather(*workers, return_exceptions=True)
+
+            if not args.quiet:
+                for hostname in targets:
+                    output = buffered_outputs.get(hostname)
+                    if output is None:
+                        continue
+                    console.print(f"[green]Output from {hostname}:[/green]\n{output}")
         else:
             sshmap_logger.display(
                 f"[START] Executing command '{args.command}' on {args.hostname}."
@@ -209,8 +234,8 @@ def main():
     parser.add_argument(
         "--maxworkers",
         type=int,
-        default=1,
-        help="Number of concurrent workers when using --all (default: 1)",
+        default=None,
+        help="Number of concurrent workers when using --all (default: auto, up to 10)",
     )
     parser.add_argument(
         "--output", type=str, default="output", help="Path to output folder"
