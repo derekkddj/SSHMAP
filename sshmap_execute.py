@@ -41,6 +41,7 @@ graph = GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
 currenttime = datetime.now().strftime('%Y%m%d_%H%M%S')
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+SUDO_CMD_RE = re.compile(r"(^|[;&|]\s*|\s)sudo(\s|$)")
 
 
 def normalize_command_output(output: str) -> str:
@@ -50,6 +51,13 @@ def normalize_command_output(output: str) -> str:
     normalized = output.replace("\r\n", "\n").replace("\r", "\n")
     normalized = ANSI_ESCAPE_RE.sub("", normalized)
     return normalized
+
+
+def command_requires_pty(command: str) -> bool:
+    """Return True when command likely needs a PTY (e.g., sudo with requiretty)."""
+    if not command:
+        return False
+    return bool(SUDO_CMD_RE.search(command))
 
 async def execute_command_on_host(
     args, target, local_hostname, credential_store, task_id, defer_output=False
@@ -75,7 +83,11 @@ async def execute_command_on_host(
             await host_ssh.interactive_shell()
             return
 
-        output = await host_ssh.exec_command(args.command)
+        use_pty = args.pty or command_requires_pty(args.command)
+        if use_pty:
+            output = await host_ssh.exec_command_with_pty(args.command)
+        else:
+            output = await host_ssh.exec_command(args.command)
         output = normalize_command_output(output)
         if not args.quiet and not defer_output:
             progress.console.print(f"[green]Output from {target}:[/green]\n{output}")
@@ -255,6 +267,11 @@ def main():
         "--shell",
         action="store_true",
         help="Open an interactive shell on the remote host (ignores --command)"
+    )
+    parser.add_argument(
+        "--pty",
+        action="store_true",
+        help="Force PTY allocation for command execution (auto-enabled for sudo commands)",
     )
 
     args = parser.parse_args()
