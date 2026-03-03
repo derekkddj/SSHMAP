@@ -220,6 +220,21 @@ class SSHSession:
         result = await self.connection.run(command)
         return result.stdout, result.stderr, result.exit_status
 
+    async def exec_command_with_pty(self, command: str) -> str:
+        """Execute command on the remote machine with a pseudo-TTY allocated.
+
+        Use this when the remote host's /etc/sudoers has 'Defaults requiretty',
+        which prevents sudo from running inside a non-interactive (no-TTY) SSH
+        session.  A PTY merges stdout and stderr into stdout and uses \\r\\n
+        line endings; both are handled transparently.
+        """
+        if self.connection is None:
+            raise ValueError("SSH connection is not established.")
+        result = await self.connection.run(command, request_pty="force")
+        output = result.stdout or ""
+        # PTY uses \r\n; normalise to \n for consistent downstream parsing
+        return output.replace("\r\n", "\n").replace("\r", "\n")
+
     async def interactive_shell(self):
         """
         Opens an interactive shell on the remote host.
