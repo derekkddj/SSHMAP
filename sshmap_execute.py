@@ -2,6 +2,7 @@ import argparse
 import sys
 import asyncio
 import os
+import re
 from datetime import datetime
 from modules.config import CONFIG
 from modules.graphdb import GraphDB
@@ -39,6 +40,17 @@ graph = GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
 # Date of running
 currenttime = datetime.now().strftime('%Y%m%d_%H%M%S')
 
+ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+
+
+def normalize_command_output(output: str) -> str:
+    """Normalize remote command output for stable terminal rendering and storage."""
+    if not output:
+        return ""
+    normalized = output.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = ANSI_ESCAPE_RE.sub("", normalized)
+    return normalized
+
 async def execute_command_on_host(
     args, target, local_hostname, credential_store, task_id
 ):
@@ -64,8 +76,9 @@ async def execute_command_on_host(
             return
 
         output = await host_ssh.exec_command(args.command)
+        output = normalize_command_output(output)
         if not args.quiet:
-            console.print(f"[green]Output from {target}:[/green]\n{output}")
+            progress.console.print(f"[green]Output from {target}:[/green]\n{output}")
         # Now save the output to a file, each host gets its own file with the date and time
         # Create output directory if it doesn't exist
         if not args.no_store:
