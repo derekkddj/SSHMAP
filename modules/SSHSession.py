@@ -76,6 +76,7 @@ class SSHSession:
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
+                        login_timeout=CONFIG["scan_timeout"],
                         tunnel=tunnel_conn,
                         agent_path=None,
                         agent_forwarding=False,
@@ -89,6 +90,7 @@ class SSHSession:
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
+                        login_timeout=CONFIG["scan_timeout"],
                         tunnel=tunnel_conn,
                         agent_path=None,
                         agent_forwarding=False,
@@ -103,7 +105,15 @@ class SSHSession:
                 # No jumper (direct or proxy)
                 sock = None
                 if self.proxy_url:
-                    sock = create_proxy_socket(self.proxy_url, self.host, self.port)
+                    # Proxy negotiation is blocking (PySocks). Run it off the event loop
+                    # so surrounding asyncio.wait_for() timeouts remain effective.
+                    sock = await asyncio.to_thread(
+                        create_proxy_socket,
+                        self.proxy_url,
+                        self.host,
+                        self.port,
+                        CONFIG["scan_timeout"],
+                    )
                     if not sock:
                         # Failed to create proxy socket
                         raise ConnectionError(f"Failed to connect to proxy {self.proxy_url}")
@@ -116,6 +126,7 @@ class SSHSession:
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
+                        login_timeout=CONFIG["scan_timeout"],
                         agent_path=None,
                         agent_forwarding=False,
                         username=self.user,
@@ -129,6 +140,7 @@ class SSHSession:
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
+                        login_timeout=CONFIG["scan_timeout"],
                         agent_path=None,
                         agent_forwarding=False,
                         username=self.user,

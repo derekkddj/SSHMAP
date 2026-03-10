@@ -40,9 +40,10 @@ def sanitize_filename_component(value: str, default: str = "unknown", max_len: i
 
     return text
 
-def create_proxy_socket(proxy_url, target_host, target_port):
+def create_proxy_socket(proxy_url, target_host, target_port, timeout=None):
     """
     Creates a socket connected to the target host through the proxy.
+    The socket timeout prevents indefinite blocking during proxy negotiation.
     Returns the connected socket.
     """
     try:
@@ -65,6 +66,8 @@ def create_proxy_socket(proxy_url, target_host, target_port):
         
         # Create a socket that goes through the proxy
         s = socks.socksocket()
+        if timeout is not None:
+            s.settimeout(timeout)
         s.set_proxy(proxy_type, proxy_host, proxy_port)
         
         # Connect to the target
