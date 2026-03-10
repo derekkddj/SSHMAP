@@ -112,7 +112,6 @@ class SSHSession:
                         self.proxy_url,
                         self.host,
                         self.port,
-                        CONFIG["scan_timeout"],
                     )
                     if not sock:
                         # Failed to create proxy socket

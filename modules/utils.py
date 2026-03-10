@@ -64,10 +64,13 @@ def create_proxy_socket(proxy_url, target_host, target_port, timeout=None):
              else:
                  proxy_port = 1080
         
+        # Use scan timeout by default to avoid indefinite proxy negotiation.
+        if timeout is None:
+            timeout = CONFIG.get("scan_timeout", 10)
+
         # Create a socket that goes through the proxy
         s = socks.socksocket()
-        if timeout is not None:
-            s.settimeout(timeout)
+        s.settimeout(timeout)
         s.set_proxy(proxy_type, proxy_host, proxy_port)
         
         # Connect to the target
