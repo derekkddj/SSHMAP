@@ -77,7 +77,9 @@ def create_proxy_socket(proxy_url, target_host, target_port, timeout=None):
         s.connect((target_host, target_port))
         return s
     except Exception as e:
-        sshmap_logger.error(f"Failed to connect via proxy {proxy_url}: {e}")
+        sshmap_logger.error(
+            f"Failed to connect via proxy {proxy_url} to {target_host}:{target_port}: {e}"
+        )
         return None
 
 
