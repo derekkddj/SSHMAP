@@ -27,6 +27,9 @@ class Config:
                 "scan_timeout": 10,
                 "brute_new_credentials": False,
                 "record_connection_attempts": True,
+                # Post-exploitation: credential_harvester scans only current $HOME by default.
+                # If enabled, it also enumerates other users' home directories when readable.
+                "credharvest_all_homes": False,
                 # ntfy push notifications (disabled by default)
                 "ntfy_url": "",
                 "ntfy_topic": "",

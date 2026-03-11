@@ -122,6 +122,7 @@ max_depth: 1 #default max depth
 scan_timeout: 5        # Timeout for SSH connection attempts (in seconds)
 brute_new_credential: False # If True, every new credential will be saved as _bruteforce, so it will be used in next host regadless of the IP
 record_connection_attempts: True # If True, records all connection attempts (successful and failed) to Neo4j for tracking. Set to False for faster scans with thousands of attempts.
+credharvest_all_homes: False # credential_harvester: if True, enumerate other users' home dirs when readable
 ```
 
 ### Usage
