@@ -1,6 +1,10 @@
 import argparse
 import asyncio
 import sys
+import select
+import termios
+import threading
+import tty
 from modules import bruteforce, graphdb
 from modules.attempt_store import AttemptStore
 from modules.logger import sshmap_logger, setup_debug_logging
@@ -66,6 +70,66 @@ progress = Progress(
     TimeRemainingColumn(),
     transient=True,
 )
+
+
+class ScanPauseController:
+    """Controls pause/resume state for scan workers."""
+
+    def __init__(self):
+        self.run_event = threading.Event()
+        self.run_event.set()
+        self.stop_event = threading.Event()
+        self._lock = threading.Lock()
+
+    def toggle(self):
+        with self._lock:
+            if self.run_event.is_set():
+                self.run_event.clear()
+                sshmap_logger.warn(
+                    "Scan paused. In-flight attempts will finish, new targets are paused. Press 'p' to resume."
+                )
+            else:
+                self.run_event.set()
+                sshmap_logger.success("Scan resumed.")
+
+    async def wait_if_paused(self):
+        while not self.run_event.is_set():
+            await asyncio.sleep(0.2)
+
+
+def start_pause_key_listener(controller):
+    """Start a background listener for single-key pause/resume hotkey."""
+    if not sys.stdin.isatty():
+        sshmap_logger.info(
+            "Interactive pause hotkey disabled (stdin is not a TTY)."
+        )
+        return None
+
+    def _listen_for_keys():
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            while not controller.stop_event.is_set():
+                ready, _, _ = select.select([sys.stdin], [], [], 0.2)
+                if not ready:
+                    continue
+                key = sys.stdin.read(1)
+                if key and key.lower() == "p":
+                    controller.toggle()
+        except Exception as e:
+            sshmap_logger.debug(f"Pause hotkey listener stopped: {e}")
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+    listener_thread = threading.Thread(
+        target=_listen_for_keys,
+        name="scan-pause-listener",
+        daemon=True,
+    )
+    listener_thread.start()
+    sshmap_logger.display("Hotkey: press 'p' to pause/resume scan.")
+    return listener_thread
 
 
 async def handle_target(
@@ -376,6 +440,8 @@ async def async_main(args):
     # Launch multiple tasks concurrently for all targets
     queue = AsyncRandomQueue()
     task_ids = {}
+    pause_controller = ScanPauseController()
+    pause_listener = start_pause_key_listener(pause_controller)
     random.shuffle(new_targets)
     for target in new_targets:
         await queue.put((target, 1, initial_jump_session))
@@ -393,11 +459,16 @@ async def async_main(args):
 
         async def tracked_worker():
             while True:
+                has_task = False
                 try:
+                    await pause_controller.wait_if_paused()
                     target, depth, jumper = await queue.get()
+                    has_task = True
                     current_jump = (
                         jumper.get_remote_hostname() if jumper else initial_jump_host
                     )
+
+                    await pause_controller.wait_if_paused()
 
                     async with semaphore:
                         await handle_target(
@@ -424,7 +495,8 @@ async def async_main(args):
                 except asyncio.CancelledError:
                     break
                 finally:
-                    await queue.task_done()
+                    if has_task:
+                        await queue.task_done()
 
         workers = [
             asyncio.create_task(tracked_worker()) for _ in range(args.maxworkers)
@@ -435,6 +507,9 @@ async def async_main(args):
         except KeyboardInterrupt:
             sshmap_logger.warn("Ctrl+C received! Cancelling...")
         finally:
+            pause_controller.stop_event.set()
+            if pause_listener and pause_listener.is_alive():
+                pause_listener.join(timeout=0.5)
             for w in workers:
                 w.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
