@@ -1089,9 +1089,9 @@
             <div class="sidebar-section">
                 <div class="section-header">🎯 Path Finder</div>
                 <div class="path-inputs">
-                    <input type="text" id="startNode" placeholder="Start node..." list="hostnames">
+                    <input type="text" id="startNode" placeholder="Start node..." list="startHostnames">
                     <div class="arrow-divider">↓</div>
-                    <input type="text" id="endNode" placeholder="End node..." list="hostnames">
+                    <input type="text" id="endNode" placeholder="End node..." list="endHostnames">
                     <button class="btn btn-primary" onclick="findPath()" style="width: 100%; margin-top: 10px;">Find Path</button>
                 </div>
             </div>
@@ -1242,7 +1242,8 @@
         </div>
     </div>
 
-    <datalist id="hostnames"></datalist>
+    <datalist id="startHostnames"></datalist>
+    <datalist id="endHostnames"></datalist>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

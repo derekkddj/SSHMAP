@@ -341,13 +341,24 @@ function loadHostnames() {
     fetch('/api/hosts')
         .then(response => response.json())
         .then(data => {
-            const datalist = document.getElementById('hostnames');
-            datalist.innerHTML = '';
+            const startDatalist = document.getElementById('startHostnames');
+            const endDatalist = document.getElementById('endHostnames');
+
+            if (!startDatalist || !endDatalist) {
+                return;
+            }
+
+            startDatalist.innerHTML = '';
+            endDatalist.innerHTML = '';
             
             data.hostnames.forEach(hostname => {
-                const option = document.createElement('option');
-                option.value = hostname;
-                datalist.appendChild(option);
+                const startOption = document.createElement('option');
+                startOption.value = hostname;
+                startDatalist.appendChild(startOption);
+
+                const endOption = document.createElement('option');
+                endOption.value = hostname;
+                endDatalist.appendChild(endOption);
             });
         })
         .catch(error => {
