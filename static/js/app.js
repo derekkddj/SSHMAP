@@ -14,6 +14,9 @@ let filterState = {
 let uniqueUsers = new Set();
 let uniqueMethods = new Set();
 let mobileUiInitialized = false;
+let pathHostnames = [];
+let pathSuggestionsPopup = null;
+let activePathInputId = null;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -341,6 +344,7 @@ function loadHostnames() {
     fetch('/api/hosts')
         .then(response => response.json())
         .then(data => {
+            pathHostnames = Array.isArray(data.hostnames) ? data.hostnames : [];
             const startDatalist = document.getElementById('startHostnames');
             const endDatalist = document.getElementById('endHostnames');
 
@@ -351,7 +355,7 @@ function loadHostnames() {
             startDatalist.innerHTML = '';
             endDatalist.innerHTML = '';
             
-            data.hostnames.forEach(hostname => {
+            pathHostnames.forEach(hostname => {
                 const startOption = document.createElement('option');
                 startOption.value = hostname;
                 startDatalist.appendChild(startOption);
@@ -364,6 +368,72 @@ function loadHostnames() {
         .catch(error => {
             console.error('Failed to load hostnames:', error);
         });
+}
+
+function ensurePathSuggestionsPopup() {
+    if (pathSuggestionsPopup) {
+        return pathSuggestionsPopup;
+    }
+
+    const popup = document.createElement('div');
+    popup.id = 'pathSuggestionsPopup';
+    popup.className = 'search-popup';
+    popup.style.display = 'none';
+    popup.style.position = 'fixed';
+    popup.style.zIndex = '3000';
+    popup.style.maxHeight = '240px';
+    popup.style.overflowY = 'auto';
+    document.body.appendChild(popup);
+    pathSuggestionsPopup = popup;
+    return popup;
+}
+
+function hidePathSuggestionsPopup() {
+    if (pathSuggestionsPopup) {
+        pathSuggestionsPopup.style.display = 'none';
+    }
+    activePathInputId = null;
+}
+
+function showPathSuggestionsPopup(inputEl) {
+    const popup = ensurePathSuggestionsPopup();
+    const query = inputEl.value.trim().toLowerCase();
+    const filtered = pathHostnames
+        .filter(hostname => hostname.toLowerCase().includes(query))
+        .slice(0, 100);
+
+    if (filtered.length === 0) {
+        popup.innerHTML = '<div class="search-no-results">No matching hosts</div>';
+    } else {
+        popup.innerHTML = filtered
+            .map(hostname => `<div class="search-result-item node-result" data-hostname="${encodeURIComponent(hostname)}">🖥️ ${escapeHtml(hostname)}</div>`)
+            .join('');
+    }
+
+    const rect = inputEl.getBoundingClientRect();
+    popup.style.left = `${rect.left}px`;
+    popup.style.top = `${rect.bottom + 4}px`;
+    popup.style.width = `${rect.width}px`;
+    popup.style.display = 'block';
+    activePathInputId = inputEl.id;
+}
+
+function bindPathInputAutocomplete(inputEl) {
+    if (!inputEl) {
+        return;
+    }
+
+    inputEl.addEventListener('focus', function() {
+        showPathSuggestionsPopup(inputEl);
+    });
+
+    inputEl.addEventListener('click', function() {
+        showPathSuggestionsPopup(inputEl);
+    });
+
+    inputEl.addEventListener('input', function() {
+        showPathSuggestionsPopup(inputEl);
+    });
 }
 
 // Search functionality
@@ -1212,8 +1282,50 @@ function setupEventListeners() {
         }
     });
 
+    bindPathInputAutocomplete(document.getElementById('startNode'));
+    bindPathInputAutocomplete(document.getElementById('endNode'));
+
+    document.addEventListener('click', function(e) {
+        const startInput = document.getElementById('startNode');
+        const endInput = document.getElementById('endNode');
+        const clickedPathInput = (startInput && startInput.contains(e.target)) ||
+            (endInput && endInput.contains(e.target));
+        const clickedPopup = pathSuggestionsPopup && pathSuggestionsPopup.contains(e.target);
+
+        if (!clickedPathInput && !clickedPopup) {
+            hidePathSuggestionsPopup();
+        }
+    });
+
+    document.addEventListener('mousedown', function(e) {
+        if (!pathSuggestionsPopup || !pathSuggestionsPopup.contains(e.target)) {
+            return;
+        }
+
+        const item = e.target.closest('[data-hostname]');
+        if (!item || !activePathInputId) {
+            return;
+        }
+
+        const inputEl = document.getElementById(activePathInputId);
+        if (!inputEl) {
+            return;
+        }
+
+        const encodedHostname = item.getAttribute('data-hostname') || '';
+        inputEl.value = decodeURIComponent(encodedHostname);
+        inputEl.focus();
+        hidePathSuggestionsPopup();
+    });
+
     window.addEventListener('resize', function() {
         initializeResponsiveUI();
+        if (activePathInputId) {
+            const activeInput = document.getElementById(activePathInputId);
+            if (activeInput) {
+                showPathSuggestionsPopup(activeInput);
+            }
+        }
     });
 
     document.addEventListener('keydown', function(e) {
@@ -1221,6 +1333,7 @@ function setupEventListeners() {
             if (e.key === 'Escape') {
                 searchResults.style.display = 'none';
                 hideContextMenu();
+                hidePathSuggestionsPopup();
             }
             return;
         }
@@ -1236,6 +1349,7 @@ function setupEventListeners() {
         if (e.key === 'Escape') {
             searchResults.style.display = 'none';
             hideContextMenu();
+            hidePathSuggestionsPopup();
             network.unselectAll();
             showDefaultInfo();
             return;
