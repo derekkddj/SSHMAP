@@ -17,6 +17,7 @@ from modules.logger import sshmap_logger
 from modules.utils import sanitize_filename_component
 import html
 import asyncio
+import json
 import subprocess
 import os
 import sys
@@ -69,6 +70,123 @@ db = GraphDB(
     user=CONFIG['neo4j_user'],
     password=CONFIG['neo4j_pass']
 )
+
+
+def _parse_import_flag(raw_value):
+    """Interpret checkbox/form flags consistently across JSON and form uploads."""
+    if isinstance(raw_value, bool):
+        return raw_value
+    if raw_value is None:
+        return False
+    return str(raw_value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _normalize_import_time(raw_value):
+    """Keep imported relationship times numeric when possible for freshness queries."""
+    if raw_value in (None, ''):
+        return None
+    if isinstance(raw_value, bool):
+        raise ValueError('Relationship time must not be a boolean value')
+    if isinstance(raw_value, (int, float)):
+        return int(raw_value)
+    if isinstance(raw_value, str):
+        value = raw_value.strip()
+        if not value:
+            return None
+        if value.isdigit() or (value.startswith('-') and value[1:].isdigit()):
+            return int(value)
+        try:
+            return int(datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp() * 1000)
+        except ValueError as exc:
+            raise ValueError(f'Unsupported relationship time value: {raw_value}') from exc
+    raise ValueError(f'Unsupported relationship time type: {type(raw_value).__name__}')
+
+
+def _load_import_payload(req):
+    """Load import JSON from either multipart upload or JSON request body."""
+    upload = req.files.get('file')
+    if upload:
+        filename = upload.filename or 'upload.json'
+        if not filename.lower().endswith('.json'):
+            raise ValueError('Import file must be a JSON file')
+
+        try:
+            payload = json.load(upload.stream)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f'Invalid JSON file: {exc.msg}') from exc
+
+        return payload, _parse_import_flag(req.form.get('replace_existing'))
+
+    payload = req.get_json(silent=True)
+    if payload is None:
+        raise ValueError('Upload a JSON export file or send a JSON body')
+
+    return payload, _parse_import_flag(payload.get('replace_existing'))
+
+
+def _validate_import_payload(payload):
+    """Validate and normalize a graph import payload."""
+    if not isinstance(payload, dict):
+        raise ValueError('Import payload must be a JSON object')
+
+    nodes = payload.get('nodes')
+    edges = payload.get('edges')
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        raise ValueError('Import payload must include nodes and edges arrays')
+
+    normalized_nodes = []
+    hostnames = set()
+    for index, node in enumerate(nodes, start=1):
+        if not isinstance(node, dict):
+            raise ValueError(f'Node #{index} must be an object')
+
+        hostname = str(node.get('hostname', '')).strip()
+        if not hostname:
+            raise ValueError(f'Node #{index} is missing hostname')
+
+        interfaces = node.get('interfaces') or []
+        if not isinstance(interfaces, list):
+            raise ValueError(f'Node #{index} interfaces must be a list')
+
+        normalized_nodes.append({
+            'hostname': hostname,
+            'interfaces': [str(interface) for interface in interfaces]
+        })
+        hostnames.add(hostname)
+
+    normalized_edges = []
+    for index, edge in enumerate(edges, start=1):
+        if not isinstance(edge, dict):
+            raise ValueError(f'Edge #{index} must be an object')
+
+        from_hostname = str(edge.get('from_hostname', '')).strip()
+        to_hostname = str(edge.get('to_hostname', '')).strip()
+        if not from_hostname or not to_hostname:
+            raise ValueError(f'Edge #{index} must include from_hostname and to_hostname')
+        if from_hostname not in hostnames or to_hostname not in hostnames:
+            raise ValueError(f'Edge #{index} references a hostname not present in nodes')
+
+        port = edge.get('port')
+        if port in (None, ''):
+            raise ValueError(f'Edge #{index} is missing port')
+
+        try:
+            normalized_port = int(port)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'Edge #{index} port must be an integer') from exc
+
+        normalized_edges.append({
+            'from_hostname': from_hostname,
+            'to_hostname': to_hostname,
+            'user': str(edge.get('user', '')),
+            'method': str(edge.get('method', '')),
+            'creds': str(edge.get('creds', '')),
+            'ip': str(edge.get('ip', '')),
+            'port': normalized_port,
+            'time': _normalize_import_time(edge.get('time'))
+        })
+
+    return normalized_nodes, normalized_edges
 
 
 @app.route('/')
@@ -205,6 +323,61 @@ def export_graph():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/import', methods=['POST'])
+def import_graph():
+    """Import a previously exported graph snapshot into Neo4j."""
+    try:
+        payload, replace_existing = _load_import_payload(request)
+        nodes, edges = _validate_import_payload(payload)
+
+        with db.driver.session() as session:
+            if replace_existing:
+                session.run("""
+                    MATCH (n:Host)
+                    DETACH DELETE n
+                """)
+
+            if nodes:
+                session.run(
+                    """
+                    UNWIND $nodes AS node
+                    MERGE (h:Host {hostname: node.hostname})
+                    SET h.interfaces = node.interfaces
+                    """,
+                    nodes=nodes,
+                )
+
+            if edges:
+                session.run(
+                    """
+                    UNWIND $edges AS edge
+                    MATCH (src:Host {hostname: edge.from_hostname})
+                    MATCH (dst:Host {hostname: edge.to_hostname})
+                    MERGE (src)-[r:SSH_ACCESS {
+                        user: edge.user,
+                        method: edge.method,
+                        creds: edge.creds,
+                        ip: edge.ip,
+                        port: edge.port
+                    }]->(dst)
+                    SET r.time = edge.time
+                    """,
+                    edges=edges,
+                )
+
+        return jsonify({
+            'success': True,
+            'message': 'Database import completed successfully',
+            'nodes_imported': len(nodes),
+            'relationships_imported': len(edges),
+            'replace_existing': replace_existing
+        })
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/search')

@@ -1170,6 +1170,60 @@ function exportGraphJSON() {
         });
 }
 
+function triggerImportGraphJSON() {
+    const fileInput = document.getElementById('importGraphFile');
+    if (!fileInput) {
+        showError('Import control is not available.');
+        return;
+    }
+
+    fileInput.value = '';
+    fileInput.click();
+}
+
+function handleImportGraphFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) {
+        return;
+    }
+
+    const replaceExisting = document.getElementById('replaceExistingImport')?.checked || false;
+    const warningMessage = replaceExisting
+        ? 'This will replace the current Neo4j project data with the selected import. Continue?'
+        : 'Import this project snapshot into the current Neo4j database?';
+
+    if (!confirm(warningMessage)) {
+        input.value = '';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('replace_existing', replaceExisting ? 'true' : 'false');
+
+    fetch('/api/import', {
+        method: 'POST',
+        body: formData
+    })
+    .then(async response => {
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Import failed');
+        }
+        return data;
+    })
+    .then(data => {
+        alert(`Import completed successfully. Loaded ${data.nodes_imported} nodes and ${data.relationships_imported} relationships.`);
+        loadGraph();
+    })
+    .catch(error => {
+        showError('Import failed: ' + error.message);
+    })
+    .finally(() => {
+        input.value = '';
+    });
+}
+
 // Execute command on target host
 function executeCommand(hostname) {
     const commandInput = document.getElementById('commandInput');

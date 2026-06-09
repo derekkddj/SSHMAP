@@ -8,6 +8,8 @@ the API endpoints are properly configured.
 import pytest
 import sys
 import os
+import json
+from io import BytesIO
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -40,6 +42,8 @@ def test_routes_registered():
     expected_routes = [
         '/',
         '/api/graph',
+        '/api/export',
+        '/api/import',
         '/api/search',
         '/api/path',
         '/api/node/<int:node_id>',
@@ -52,6 +56,101 @@ def test_routes_registered():
         assert any(route.replace('<int:node_id>', '<node_id>') in r or
                    route.replace('<int:edge_id>', '<edge_id>') in r or
                    route in r for r in routes), f"Route {route} not found in {routes}"
+
+
+class _FakeResult:
+    def __init__(self, record=None):
+        self._record = record
+
+    def single(self):
+        return self._record
+
+
+class _FakeSession:
+    def __init__(self):
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def run(self, query, **params):
+        self.calls.append((query, params))
+        return _FakeResult()
+
+
+class _FakeDriver:
+    def __init__(self, session):
+        self._session = session
+
+    def session(self):
+        return self._session
+
+
+class _FakeDB:
+    def __init__(self, session):
+        self.driver = _FakeDriver(session)
+
+
+def test_import_endpoint_accepts_export_json(monkeypatch):
+    import web_app
+
+    fake_session = _FakeSession()
+    monkeypatch.setattr(web_app, 'db', _FakeDB(fake_session))
+
+    client = web_app.app.test_client()
+    payload = {
+        'nodes': [
+            {'hostname': 'jumpbox', 'interfaces': ['10.0.0.10/24']},
+            {'hostname': 'target', 'interfaces': ['10.0.0.20/24']},
+        ],
+        'edges': [
+            {
+                'from_hostname': 'jumpbox',
+                'to_hostname': 'target',
+                'user': 'root',
+                'method': 'password',
+                'creds': 'hunter2',
+                'ip': '10.0.0.20',
+                'port': 22,
+                'time': 1710000000000,
+            }
+        ],
+    }
+
+    response = client.post(
+        '/api/import',
+        data={
+            'file': (BytesIO(json.dumps(payload).encode('utf-8')), 'project.json'),
+            'replace_existing': 'true',
+        },
+        content_type='multipart/form-data',
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['success'] is True
+    assert body['replace_existing'] is True
+    assert body['nodes_imported'] == 2
+    assert body['relationships_imported'] == 1
+    assert len(fake_session.calls) == 3
+    assert 'DETACH DELETE n' in fake_session.calls[0][0]
+    assert fake_session.calls[1][1]['nodes'][0]['hostname'] == 'jumpbox'
+    assert fake_session.calls[2][1]['edges'][0]['from_hostname'] == 'jumpbox'
+
+
+def test_import_endpoint_rejects_invalid_payload():
+    import web_app
+
+    client = web_app.app.test_client()
+    response = client.post('/api/import', json={'nodes': []})
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body['success'] is False
+    assert 'nodes and edges arrays' in body['error']
 
 
 def test_templates_directory_exists():

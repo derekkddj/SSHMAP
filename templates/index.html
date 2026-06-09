@@ -1142,10 +1142,26 @@
 
             <!-- Database Management -->
             <div class="sidebar-section">
-                <div class="section-header">🗑️ Database</div>
-                <button class="btn btn-secondary" onclick="cleanDatabase()" style="width: 100%; margin-top: 10px;">
-                    🧹 Clean Database
-                </button>
+                <div class="section-header">🗄️ Database</div>
+                <p class="info-text" style="margin: 10px 0 12px 0; line-height: 1.5;">
+                    Save the current graph as a project snapshot or load a previous snapshot into Neo4j.
+                </p>
+                <div style="display: grid; gap: 10px; margin-top: 10px;">
+                    <button class="btn btn-secondary" onclick="exportGraphJSON()" style="width: 100%;">
+                        ⬇️ Export Project JSON
+                    </button>
+                    <button class="btn btn-secondary" onclick="triggerImportGraphJSON()" style="width: 100%;">
+                        ⬆️ Import Project JSON
+                    </button>
+                    <label style="display: flex; align-items: flex-start; gap: 8px; color: #9ca3af; font-size: 13px; line-height: 1.4;">
+                        <input type="checkbox" id="replaceExistingImport" style="margin-top: 2px;">
+                        <span>Replace existing database contents before import</span>
+                    </label>
+                    <input type="file" id="importGraphFile" accept=".json,application/json" onchange="handleImportGraphFile(this)" style="display: none;">
+                    <button class="btn btn-secondary" onclick="cleanDatabase()" style="width: 100%;">
+                        🧹 Clean Database
+                    </button>
+                </div>
             </div>
 
             <!-- Stats Section -->
@@ -1186,9 +1202,6 @@
                 </button>
                 <button class="toolbar-btn" onclick="loadGraph()" title="Reload graph">
                     🔄 Reload
-                </button>
-                <button class="toolbar-btn" onclick="exportGraphJSON()" title="Download current graph as JSON">
-                    ⬇️ Export JSON
                 </button>
                 <div class="graph-status" id="graphStatus" aria-live="polite">
                     <strong>0</strong> nodes • <strong>0</strong> edges
