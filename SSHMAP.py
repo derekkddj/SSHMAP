@@ -63,7 +63,7 @@ hosts_compromised_count = 0
 
 progress = Progress(
     SpinnerColumn(),
-    TextColumn("[bold]{task.fields[jump_host]}", justify="right"),
+    TextColumn("[bold]{task.fields[jump_host]}{task.fields[status]}", justify="right"),
     BarColumn(),
     "[{task.completed}/{task.total}]",
     TimeElapsedColumn(),
@@ -80,16 +80,38 @@ class ScanPauseController:
         self.run_event.set()
         self.stop_event = threading.Event()
         self._lock = threading.Lock()
+        self._progress = None
+        self._task_ids = None
+
+    def bind_progress(self, progress_instance, task_ids):
+        self._progress = progress_instance
+        self._task_ids = task_ids
+
+    def is_paused(self):
+        return not self.run_event.is_set()
+
+    def status_label(self):
+        return " [PAUSED]" if self.is_paused() else ""
+
+    def _update_progress_status(self):
+        if self._progress is None or self._task_ids is None:
+            return
+
+        status = self.status_label()
+        for task_id in self._task_ids.values():
+            self._progress.update(task_id, status=status)
 
     def toggle(self):
         with self._lock:
             if self.run_event.is_set():
                 self.run_event.clear()
+                self._update_progress_status()
                 sshmap_logger.highlight(
                     "[PAUSED] Scan paused. In-flight attempts will finish, new targets are paused. Press 'p' to resume."
                 )
             else:
                 self.run_event.set()
+                self._update_progress_status()
                 sshmap_logger.success("Scan resumed.")
 
     async def wait_if_paused(self):
@@ -149,6 +171,7 @@ async def handle_target(
     force_targets_mode=False,
     force_targets_ips=None,
     proxy_url=None,
+    pause_controller=None,
 ):
     try:
         if current_depth > max_depth:
@@ -290,6 +313,7 @@ async def handle_target(
                                     description=f"Scanning {remote_hostname}",
                                     total=len(new_targets),
                                     jump_host=remote_hostname,
+                                    status=pause_controller.status_label() if pause_controller else "",
                                 )
                             sshmap_logger.info(
                                 f"Curent-depth: {current_depth}, scaning from: {source_host} We create a recursive job, using remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets"
@@ -453,7 +477,9 @@ async def async_main(args):
             description=f"Scanning from {initial_jump_host}",
             total=len(new_targets),
             jump_host=initial_jump_host,
+            status=pause_controller.status_label(),
         )
+        pause_controller.bind_progress(progress, task_ids)
 
         semaphore = asyncio.Semaphore(args.maxworkers)
 
@@ -488,6 +514,7 @@ async def async_main(args):
                             force_targets_mode,
                             force_targets_ips,
                             proxy_url=args.proxy,
+                            pause_controller=pause_controller,
                         )
 
                     if current_jump in task_ids:
