@@ -85,8 +85,8 @@ class ScanPauseController:
         with self._lock:
             if self.run_event.is_set():
                 self.run_event.clear()
-                sshmap_logger.warn(
-                    "Scan paused. In-flight attempts will finish, new targets are paused. Press 'p' to resume."
+                sshmap_logger.highlight(
+                    "[PAUSED] Scan paused. In-flight attempts will finish, new targets are paused. Press 'p' to resume."
                 )
             else:
                 self.run_event.set()
