@@ -37,6 +37,7 @@ from rich.progress import (
 import random
 from modules.helpers.AsyncRandomQueue import AsyncRandomQueue
 from modules.notifier import notifier
+from modules.scan_seed import get_previous_pivot_seed_plans
 
 
 VERSION = "1.0.2"
@@ -423,6 +424,22 @@ async def async_main(args):
         graphdb=graph, credential_store=credential_store, proxy_url=args.proxy
     )
 
+    previous_pivot_plans = []
+    if not args.start_from:
+        previous_pivot_plans = get_previous_pivot_seed_plans(
+            graph,
+            start_host,
+            max_depth,
+            blacklist_ips=blacklist_ips if not force_targets_mode else [],
+            whitelist_ips=whitelist_ips if not force_targets_mode else None,
+            force_targets_mode=force_targets_mode,
+            force_targets_ips=force_targets_ips,
+        )
+        if previous_pivot_plans:
+            sshmap_logger.display(
+                f"Reusing {len(previous_pivot_plans)} previously discovered pivot(s) from the graph database."
+            )
+
     # Handle --start-from option to start scanning from a remote host
     initial_jump_host = start_host
     initial_jump_session = None
@@ -480,6 +497,37 @@ async def async_main(args):
             status=pause_controller.status_label(),
         )
         pause_controller.bind_progress(progress, task_ids)
+
+        for pivot_plan in previous_pivot_plans:
+            pivot_hostname = pivot_plan["hostname"]
+            try:
+                pivot_session = await ssh_session_manager.get_session(
+                    pivot_hostname, start_host
+                )
+            except Exception as e:
+                sshmap_logger.warning(
+                    f"Failed to restore pivot session for {pivot_hostname}: {e}"
+                )
+                continue
+
+            if not pivot_session:
+                sshmap_logger.warning(
+                    f"Skipping previously discovered pivot {pivot_hostname} because its SSH session could not be restored."
+                )
+                continue
+
+            visited_attempts.add(pivot_hostname)
+
+            if pivot_hostname not in task_ids:
+                task_ids[pivot_hostname] = progress.add_task(
+                    description=f"Scanning {pivot_hostname}",
+                    total=len(pivot_plan["targets"]),
+                    jump_host=pivot_hostname,
+                    status=pause_controller.status_label(),
+                )
+
+            for target in pivot_plan["targets"]:
+                await queue.put((target, 2, pivot_session))
 
         semaphore = asyncio.Semaphore(args.maxworkers)
 
