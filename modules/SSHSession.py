@@ -200,7 +200,7 @@ class SSHSession:
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
             jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
-            self.sshmap_logger.error(
+            self.sshmap_logger.warning(
                 f"{attempt_prefix}{self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - {type(e).__name__}: {e}"
             )
             self.connection = None
