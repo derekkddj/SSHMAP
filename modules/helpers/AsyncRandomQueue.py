@@ -2,12 +2,13 @@ import asyncio
 import random
 
 class AsyncRandomQueue:
-    def __init__(self):
+    def __init__(self, randomize=True):
         self._items = []
         self._event = asyncio.Event()
         self._lock = asyncio.Lock()
         self._unfinished_tasks = 0
         self._all_tasks_done = asyncio.Condition()
+        self._randomize = randomize
 
     async def put(self, item):
         async with self._lock:
@@ -22,7 +23,7 @@ class AsyncRandomQueue:
                 if not self._items:
                     self._event.clear()
                     continue
-                index = random.randint(0, len(self._items) - 1)
+                index = random.randint(0, len(self._items) - 1) if self._randomize else 0
                 item = self._items.pop(index)
                 if not self._items:
                     self._event.clear()
