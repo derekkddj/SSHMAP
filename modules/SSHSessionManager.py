@@ -58,7 +58,7 @@ class SSHSessionManager:
             connected = await session.connect()
             
             if not connected:
-                sshmap_logger.error(f"Failed to connect to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}")
+                sshmap_logger.warn(f"Failed to connect to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}")
                 return None
             
             self.sessions[key] = session
