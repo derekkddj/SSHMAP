@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import os
 import sys
 import select
 import termios
@@ -45,7 +46,8 @@ VERSION = "1.0.3"
 graph = graphdb.GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
 
 # Setup SQLite for attempt logging (much faster than Neo4j for this use case)
-attempt_store = AttemptStore(db_path="output/ssh_attempts.db")
+attempt_db_path = os.path.expanduser(CONFIG.get("attempt_db_path", "output/ssh_attempts.db"))
+attempt_store = AttemptStore(db_path=attempt_db_path)
 
 start_host, start_ips = get_local_info()
 ssh_ports = CONFIG["ssh_ports"]
@@ -254,6 +256,7 @@ async def handle_target(
     proxy_url=None,
     pause_controller=None,
     scan_origin_host=None,
+    record_closed_port_attempts=False,
 ):
     try:
         if scan_origin_host is None:
@@ -472,6 +475,25 @@ async def handle_target(
                 sshmap_logger.debug(
                     f"[{target}] No open ports found, skipping bruteforce."
                 )
+                if record_closed_port_attempts and source_host:
+                    try:
+                        await attempt_store.record_attempt(
+                            source_hostname=source_host,
+                            target_hostname=target,
+                            target_ip=target,
+                            target_port=port,
+                            username="_portcheck",
+                            method="port_closed",
+                            credential="closed",
+                            success=False,
+                        )
+                        sshmap_logger.debug(
+                            f"[{target}:{port}] Recorded closed-port attempt marker for {source_host}."
+                        )
+                    except Exception as e:
+                        sshmap_logger.debug(
+                            f"[{target}:{port}] Failed to record closed-port marker: {type(e).__name__}: {e}"
+                        )
 
         sshmap_logger.info(f"[{target}] Bruteforce completed successfully from {source_host} with jump {jump if jump else 'None'}.")
         return
@@ -516,6 +538,7 @@ async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, 
 
 async def async_main(args):
     setup_debug_logging()
+    sshmap_logger.display(f"Using attempt store DB: {attempt_db_path}")
     credential_store = CredentialStore(args.credentialspath)
     targets = read_targets(args.targets)
 
@@ -735,6 +758,7 @@ async def async_main(args):
                             proxy_url=args.proxy,
                             pause_controller=pause_controller,
                             scan_origin_host=scan_origin_host,
+                            record_closed_port_attempts=args.record_closed_port_attempts,
                         )
 
                     if current_jump in task_ids:
@@ -877,6 +901,11 @@ def main():
         "--force-rescan",
         action="store_true",
         help="Force retry of already-attempted connections (ignore attempt history)",
+    )
+    parser.add_argument(
+        "--record-closed-port-attempts",
+        action="store_true",
+        help="Record a synthetic attempt marker when target SSH port is closed",
     )
     parser.add_argument(
         "--debug", action="store_true", help="enable debug level information"
