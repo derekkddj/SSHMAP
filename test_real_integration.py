@@ -168,7 +168,7 @@ done"""
     return ip_info
 
 
-async def test_modern_linux():
+def test_modern_linux():
     """Test modern Linux with 'ip' command"""
     print("\n" + "=" * 80)
     print("TEST 1: Modern Linux System")
@@ -183,7 +183,7 @@ async def test_modern_linux():
     }
     
     mock_client = MockSSHClient("test-linux-host", responses)
-    result = await get_remote_ip(mock_client)
+    result = asyncio.run(get_remote_ip(mock_client))
     
     print(f"\nResult: Found {len(result)} IPs")
     for ip_data in result:
@@ -198,25 +198,19 @@ async def test_modern_linux():
     
     # Check loopback was filtered
     loopback_found = any(ip['ip'] == "127.0.0.1" for ip in result)
-    if loopback_found:
-        print("\n✗ FAILED: Loopback was not filtered!")
-        return False
+    assert not loopback_found, "Loopback was not filtered!"
     
     # Check all expected IPs are present
-    if len(result) != len(expected):
-        print(f"\n✗ FAILED: Expected {len(expected)} IPs, got {len(result)}")
-        return False
+    assert len(result) == len(expected), f"Expected {len(expected)} IPs, got {len(result)}"
     
     for i, exp in enumerate(expected):
-        if result[i]['ip'] != exp['ip'] or result[i]['mask'] != exp['mask']:
-            print(f"\n✗ FAILED: Mismatch at {i}")
-            return False
+        assert result[i]['ip'] == exp['ip'], f"IP mismatch at {i}"
+        assert result[i]['mask'] == exp['mask'], f"Mask mismatch at {i}"
     
     print("\n✓ PASSED: Modern Linux parsing working correctly")
-    return True
 
 
-async def test_hpux():
+def test_hpux():
     """Test HP-UX with netstat + ifconfig + awk"""
     print("\n" + "=" * 80)
     print("TEST 2: HP-UX System")
@@ -233,7 +227,7 @@ async def test_hpux():
     }
     
     mock_client = MockSSHClient("test-hpux-host", responses)
-    result = await get_remote_ip(mock_client)
+    result = asyncio.run(get_remote_ip(mock_client))
     
     print(f"\nResult: Found {len(result)} IPs")
     for ip_data in result:
@@ -248,20 +242,16 @@ async def test_hpux():
         {"ip": "172.16.49.220", "mask": 24},
     ]
     
-    if len(result) != len(expected):
-        print(f"\n✗ FAILED: Expected {len(expected)} IPs, got {len(result)}")
-        return False
+    assert len(result) == len(expected), f"Expected {len(expected)} IPs, got {len(result)}"
     
     for i, exp in enumerate(expected):
-        if result[i]['ip'] != exp['ip'] or result[i]['mask'] != exp['mask']:
-            print(f"\n✗ FAILED: Mismatch at {i}: expected {exp['ip']}/{exp['mask']}, got {result[i]['ip']}/{result[i]['mask']}")
-            return False
+        assert result[i]['ip'] == exp['ip'], f"Expected {exp['ip']}, got {result[i]['ip']}"
+        assert result[i]['mask'] == exp['mask'], f"Expected /{exp['mask']}, got /{result[i]['mask']}"
     
     print("\n✓ PASSED: HP-UX parsing working correctly (including accurate /26 mask)")
-    return True
 
 
-async def test_fallback():
+def test_fallback():
     """Test fallback to peer IP when all commands fail"""
     print("\n" + "=" * 80)
     print("TEST 3: Fallback to Peer IP")
@@ -275,58 +265,40 @@ async def test_fallback():
     }
     
     mock_client = MockSSHClient("test-fallback-host", responses)
-    result = await get_remote_ip(mock_client)
+    result = asyncio.run(get_remote_ip(mock_client))
     
     print(f"\nResult: Found {len(result)} IPs")
     for ip_data in result:
         print(f"  ✓ {ip_data['ip']}/{ip_data['mask']}")
     
     # Should fallback to peer IP
-    if len(result) != 1:
-        print(f"\n✗ FAILED: Expected 1 fallback IP, got {len(result)}")
-        return False
-    
-    if result[0]['ip'] != "10.0.0.1" or result[0]['mask'] != 32:
-        print(f"\n✗ FAILED: Expected peer IP 10.0.0.1/32, got {result[0]['ip']}/{result[0]['mask']}")
-        return False
+    assert len(result) == 1, f"Expected 1 fallback IP, got {len(result)}"
+    assert result[0]['ip'] == "10.0.0.1", f"Expected 10.0.0.1, got {result[0]['ip']}"
+    assert result[0]['mask'] == 32, f"Expected /32, got /{result[0]['mask']}"
     
     print("\n✓ PASSED: Fallback to peer IP working correctly")
-    return True
 
 
-async def main():
+def main():
     print("\n" + "=" * 80)
     print("INTEGRATION TEST: Testing actual get_remote_ip() implementation")
     print("=" * 80)
     
-    test1 = await test_modern_linux()
-    test2 = await test_hpux()
-    test3 = await test_fallback()
+    test_modern_linux()
+    test_hpux()
+    test_fallback()
     
     print("\n" + "=" * 80)
-    print("FINAL RESULTS")
+    print("✓ ALL INTEGRATION TESTS PASSED!")
     print("=" * 80)
-    print(f"  Test 1 (Modern Linux): {'✓ PASSED' if test1 else '✗ FAILED'}")
-    print(f"  Test 2 (HP-UX):        {'✓ PASSED' if test2 else '✗ FAILED'}")
-    print(f"  Test 3 (Fallback):     {'✓ PASSED' if test3 else '✗ FAILED'}")
-    
-    if test1 and test2 and test3:
-        print("\n" + "=" * 80)
-        print("✓ ALL INTEGRATION TESTS PASSED!")
-        print("=" * 80)
-        print("\nThe actual get_remote_ip() implementation in utils.py is working correctly:")
-        print("  ✓ Modern Linux: ip command with awk parsing")
-        print("  ✓ HP-UX: Your awk script with accurate netmask detection")
-        print("  ✓ Fallback: Peer IP when all commands fail")
-        print("  ✓ Loopback filtering working")
-        print("  ✓ Duplicate removal working")
-        print("\nThe SSHMAP script is ready for production! 🎯")
-        return 0
-    else:
-        print("\n✗ SOME TESTS FAILED - Check the implementation!")
-        return 1
+    print("\nThe actual get_remote_ip() implementation in utils.py is working correctly:")
+    print("  ✓ Modern Linux: ip command with awk parsing")
+    print("  ✓ HP-UX: Your awk script with accurate netmask detection")
+    print("  ✓ Fallback: Peer IP when all commands fail")
+    print("  ✓ Loopback filtering working")
+    print("  ✓ Duplicate removal working")
+    print("\nThe SSHMAP script is ready for production!")
 
 
 if __name__ == "__main__":
-    exit_code = asyncio.run(main())
-    exit(exit_code)
+    main()
