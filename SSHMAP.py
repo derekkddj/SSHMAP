@@ -291,6 +291,7 @@ async def handle_target(
                     f"[{target}:{port}] check_open_port skipped (jump/proxy path)."
                 )
             else:
+                skip_check_open_port = False
                 if (
                     not force_rescan
                     and CONFIG.get("record_connection_attempts", True)
@@ -313,19 +314,21 @@ async def handle_target(
                         )
                         if all_attempted:
                             sshmap_logger.debug(
-                                f"[{target}:{port}] skipping target port (all credentials already attempted from {source_host})."
+                                f"[{target}:{port}] all credentials already attempted from {source_host}; skipping check_open_port and running fallback/reuse path."
                             )
-                            continue
+                            skip_check_open_port = True
+                            port_is_open_or_forced = True
                     except Exception as e:
                         sshmap_logger.debug(
                             f"[{target}:{port}] attempt-history pre-check failed ({type(e).__name__}: {e}); falling back to check_open_port."
                         )
 
-                port_check_executed = True
-                port_is_open_or_forced = await check_open_port(target, port)
-                sshmap_logger.debug(
-                    f"[{target}:{port}] check_open_port executed={port_check_executed}, result={port_is_open_or_forced}"
-                )
+                if not skip_check_open_port:
+                    port_check_executed = True
+                    port_is_open_or_forced = await check_open_port(target, port)
+                    sshmap_logger.debug(
+                        f"[{target}:{port}] check_open_port executed={port_check_executed}, result={port_is_open_or_forced}"
+                    )
 
             if port_is_open_or_forced:
                 sshmap_logger.debug(
