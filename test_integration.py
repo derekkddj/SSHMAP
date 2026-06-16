@@ -43,7 +43,7 @@ class MockConnection:
         return None
 
 
-async def test_modern_linux():
+async def _test_modern_linux():
     """Test modern Linux with 'ip' command"""
     print("\n" + "=" * 70)
     print("TEST 1: Modern Linux System")
@@ -91,7 +91,11 @@ async def test_modern_linux():
     return True
 
 
-async def test_hpux():
+def test_modern_linux():
+    assert asyncio.run(_test_modern_linux())
+
+
+async def _test_hpux():
     """Test HP-UX with netstat + ifconfig + awk"""
     print("\n" + "=" * 70)
     print("TEST 2: HP-UX System")
@@ -136,7 +140,11 @@ async def test_hpux():
     return True
 
 
-async def test_fallback():
+def test_hpux():
+    assert asyncio.run(_test_hpux())
+
+
+async def _test_fallback():
     """Test fallback to peer IP when all commands fail"""
     print("\n" + "=" * 70)
     print("TEST 3: Fallback to Peer IP")
@@ -169,14 +177,18 @@ async def test_fallback():
     return True
 
 
+def test_fallback():
+    assert asyncio.run(_test_fallback())
+
+
 async def main():
     print("\n" + "=" * 70)
     print("INTEGRATION TEST: Real get_remote_ip() from utils.py")
     print("=" * 70)
     
-    test1 = await test_modern_linux()
-    test2 = await test_hpux()
-    test3 = await test_fallback()
+    test1 = await _test_modern_linux()
+    test2 = await _test_hpux()
+    test3 = await _test_fallback()
     
     print("\n" + "=" * 70)
     print("FINAL RESULTS")
