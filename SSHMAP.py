@@ -82,6 +82,8 @@ class ScanPauseController:
         self._lock = threading.Lock()
         self._progress = None
         self._task_ids = None
+        self._blocked_jumphosts = set()
+        self._pending_block_requests = []
 
     def bind_progress(self, progress_instance, task_ids):
         self._progress = progress_instance
@@ -114,6 +116,29 @@ class ScanPauseController:
                 self._update_progress_status()
                 sshmap_logger.success("Scan resumed.")
 
+    def request_block_jumphost(self, jump_host):
+        jump_host = (jump_host or "").strip()
+        if not jump_host:
+            return False
+        with self._lock:
+            if jump_host in self._blocked_jumphosts:
+                return False
+            self._blocked_jumphosts.add(jump_host)
+            self._pending_block_requests.append(jump_host)
+        return True
+
+    def is_jumphost_blocked(self, jump_host):
+        if not jump_host:
+            return False
+        with self._lock:
+            return jump_host in self._blocked_jumphosts
+
+    def drain_block_requests(self):
+        with self._lock:
+            pending = list(self._pending_block_requests)
+            self._pending_block_requests.clear()
+            return pending
+
     async def wait_if_paused(self):
         while not self.run_event.is_set():
             await asyncio.sleep(0.2)
@@ -130,6 +155,27 @@ def start_pause_key_listener(controller):
     def _listen_for_keys():
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
+
+        def _prompt_block_host():
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            sys.stdout.write("\nEnter jumphost to block (blank to cancel): ")
+            sys.stdout.flush()
+            jump_host = sys.stdin.readline().strip()
+            tty.setcbreak(fd)
+
+            if not jump_host:
+                sshmap_logger.info("Block jumphost cancelled.")
+                return
+
+            if controller.request_block_jumphost(jump_host):
+                sshmap_logger.highlight(
+                    f"[BLOCKED] Jumphost '{jump_host}' blocked. Queued tasks will be removed."
+                )
+            else:
+                sshmap_logger.info(
+                    f"Jumphost '{jump_host}' is already blocked."
+                )
+
         try:
             tty.setcbreak(fd)
             while not controller.stop_event.is_set():
@@ -139,6 +185,8 @@ def start_pause_key_listener(controller):
                 key = sys.stdin.read(1)
                 if key and key.lower() == "p":
                     controller.toggle()
+                elif key and key.lower() == "k":
+                    _prompt_block_host()
         except Exception as e:
             sshmap_logger.debug(f"Pause hotkey listener stopped: {e}")
         finally:
@@ -150,7 +198,7 @@ def start_pause_key_listener(controller):
         daemon=True,
     )
     listener_thread.start()
-    sshmap_logger.display("Hotkey: press 'p' to pause/resume scan.")
+    sshmap_logger.display("Hotkeys: 'p' pause/resume, 'k' block jumphost tasks.")
     return listener_thread
 
 
@@ -160,6 +208,7 @@ async def handle_target(
     credential_store,
     current_depth,
     jump=None,
+    jump_host=None,
     queue=None,
     blacklist_ips=None,
     whitelist_ips=None,
@@ -172,12 +221,22 @@ async def handle_target(
     force_targets_ips=None,
     proxy_url=None,
     pause_controller=None,
+    scan_origin_host=None,
 ):
     try:
+        if scan_origin_host is None:
+            scan_origin_host = start_host
+
+        if jump is not None and jump_host is None:
+            try:
+                jump_host = jump.get_remote_hostname()
+            except Exception:
+                jump_host = None
+
         if current_depth > max_depth:
             sshmap_logger.debug(f"Max depth {max_depth} reached. Skipping {target}")
             return
-        source_host = start_host if current_depth == 1 else jump.get_remote_hostname()
+        source_host = jump_host if jump_host else scan_origin_host
         if jump is not None:
             sshmap_logger.info(
                 f"New handle_target with target:{target} with jump {jump} and current depth {current_depth} starting from {source_host}"
@@ -319,9 +378,15 @@ async def handle_target(
                                 f"Curent-depth: {current_depth}, scaning from: {source_host} We create a recursive job, using remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets"
                             )
 
+                            if pause_controller and pause_controller.is_jumphost_blocked(source_host):
+                                sshmap_logger.warning(
+                                    f"Skipping enqueue of {len(new_targets)} recursive targets from blocked jumphost {source_host}."
+                                )
+                                continue
+
                             for new_target in new_targets:
                                 await queue.put(
-                                    (new_target, current_depth + 1, ssh_conn)
+                                    (new_target, current_depth + 1, remote_hostname)
                                 )
                         else:
                             sshmap_logger.info(
@@ -342,7 +407,14 @@ async def handle_target(
 async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, whitelist_ips, force_targets_mode=False, force_targets_ips=None, proxy_url=None):
     while True:
         try:
-            target, depth, jumper = await queue.get()
+            target, depth, queued_jump = await queue.get()
+
+            if queued_jump is not None and hasattr(queued_jump, "get_remote_hostname"):
+                jumper = queued_jump
+                jump_host = queued_jump.get_remote_hostname()
+            else:
+                jumper = None
+                jump_host = queued_jump
 
             async with semaphore:
                 await handle_target(
@@ -351,6 +423,7 @@ async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, 
                     credential_store,
                     current_depth=depth,
                     jump=jumper,
+                    jump_host=jump_host,
                     queue=queue,
                     blacklist_ips=blacklist_ips,
                     whitelist_ips=whitelist_ips,
@@ -466,14 +539,17 @@ async def async_main(args):
     task_ids = {}
     pause_controller = ScanPauseController()
     pause_listener = start_pause_key_listener(pause_controller)
+    scan_origin_host = initial_jump_host
     if args.ordered_targets:
         sshmap_logger.display(
             "Ordered target mode enabled - preserving target insertion order."
         )
     else:
         random.shuffle(new_targets)
+
+    initial_queue_jump = initial_jump_host
     for target in new_targets:
-        await queue.put((target, 1, initial_jump_session))
+        await queue.put((target, 1, initial_queue_jump))
 
     with Live(progress, console=console, refresh_per_second=10):
 
@@ -489,15 +565,76 @@ async def async_main(args):
         semaphore = asyncio.Semaphore(args.maxworkers)
 
         async def tracked_worker():
+            nonlocal initial_jump_session
             while True:
                 has_task = False
                 try:
                     await pause_controller.wait_if_paused()
-                    target, depth, jumper = await queue.get()
+
+                    pending_block_requests = pause_controller.drain_block_requests()
+                    for blocked_host in pending_block_requests:
+                        removed_count = await queue.drop_by_jumphost(blocked_host)
+                        sshmap_logger.warning(
+                            f"[BLOCKED] Removed {removed_count} queued task(s) for jumphost '{blocked_host}'."
+                        )
+                        if blocked_host in task_ids:
+                            task_id = task_ids[blocked_host]
+                            task_obj = progress.tasks[task_id]
+                            if task_obj.total is not None:
+                                new_total = max(int(task_obj.total) - removed_count, int(task_obj.completed))
+                                progress.update(task_id, total=new_total)
+
+                    target, depth, queued_jump = await queue.get()
                     has_task = True
-                    current_jump = (
-                        jumper.get_remote_hostname() if jumper else initial_jump_host
-                    )
+
+                    if queued_jump is not None and hasattr(queued_jump, "get_remote_hostname"):
+                        jumper = queued_jump
+                        jump_host = queued_jump.get_remote_hostname()
+                    else:
+                        jumper = None
+                        jump_host = queued_jump
+
+                    current_jump = jump_host if jump_host else initial_jump_host
+
+                    if jump_host and pause_controller.is_jumphost_blocked(jump_host):
+                        sshmap_logger.warning(
+                            f"[BLOCKED] Skipping target {target} for blocked jumphost '{jump_host}'."
+                        )
+                        if current_jump in task_ids:
+                            progress.update(task_ids[current_jump], advance=1)
+                        continue
+
+                    if jump_host and jumper is None:
+                        if depth == 1 and initial_jump_session is None and jump_host == initial_jump_host:
+                            pass
+                        else:
+                            if jump_host == initial_jump_host and initial_jump_session is not None:
+                                try:
+                                    if await initial_jump_session.is_connected():
+                                        jumper = initial_jump_session
+                                except Exception as e:
+                                    sshmap_logger.debug(
+                                        f"Could not validate initial jump session for {jump_host}: {type(e).__name__}: {e}"
+                                    )
+
+                            if jumper is None:
+                                reconnect_from = start_host if jump_host == initial_jump_host else scan_origin_host
+                                sshmap_logger.info(
+                                    f"Resolving jump session for {jump_host} from {reconnect_from}"
+                                )
+                                jumper = await ssh_session_manager.get_session(
+                                    jump_host, reconnect_from
+                                )
+                                if jump_host == initial_jump_host:
+                                    initial_jump_session = jumper
+
+                            if jumper is None:
+                                sshmap_logger.warning(
+                                    f"Unable to establish jump session for {jump_host}; skipping target {target}."
+                                )
+                                if current_jump in task_ids:
+                                    progress.update(task_ids[current_jump], advance=1)
+                                continue
 
                     await pause_controller.wait_if_paused()
 
@@ -508,6 +645,7 @@ async def async_main(args):
                             credential_store,
                             depth,
                             jumper,
+                            jump_host,
                             queue,
                             blacklist_ips if not force_targets_mode else [],
                             whitelist_ips if not force_targets_mode else None,
@@ -520,6 +658,7 @@ async def async_main(args):
                             force_targets_ips,
                             proxy_url=args.proxy,
                             pause_controller=pause_controller,
+                            scan_origin_host=scan_origin_host,
                         )
 
                     if current_jump in task_ids:
