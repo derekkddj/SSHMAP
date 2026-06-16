@@ -244,7 +244,7 @@ async def get_remote_ip(ssh_client):
     )
     if exit_status != 0 or err or not out.strip():
         sshmap_logger.debug(
-            f"`ip` command failed or missing (exit_status={exit_status}): {err.strip()}"
+            f"`ip` command failed or missing (exit_status={exit_status}): {(err or '').strip()}"
         )
     else:
         sshmap_logger.debug(f"ip command output: {out}")
@@ -283,7 +283,7 @@ done"""
         out, err, exit_status = await ssh_client.exec_command_with_stderr(cmd)
         if exit_status != 0 or not out.strip():
             sshmap_logger.debug(
-                f"`netstat -in` + ifconfig command failed or missing (exit_status={exit_status}): {err.strip()}"
+                f"`netstat -in` + ifconfig command failed or missing (exit_status={exit_status}): {(err or '').strip()}"
             )
         else:
             if err and err.strip():
@@ -308,7 +308,7 @@ done"""
         out, err, exit_status = await ssh_client.exec_command_with_stderr("ifconfig")
         if exit_status != 0 or not out.strip():
             sshmap_logger.debug(
-                f"`ifconfig` command failed or missing (exit_status={exit_status}): {err.strip()}"
+                f"`ifconfig` command failed or missing (exit_status={exit_status}): {(err or '').strip()}"
             )
         else:
             if err and err.strip():

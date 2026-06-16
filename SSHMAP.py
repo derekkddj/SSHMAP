@@ -310,7 +310,13 @@ async def handle_target(
                         )
                         # Use the hostname that was already retrieved during connection
                         remote_hostname = ssh_conn.get_remote_hostname()
-                        remote_ips = await get_remote_ip(ssh_conn)
+                        try:
+                            remote_ips = await get_remote_ip(ssh_conn)
+                        except Exception as e:
+                            sshmap_logger.warning(
+                                f"[{target}:{port}] Failed to collect remote IPs for {remote_hostname}: {type(e).__name__}: {e}. Using target IP fallback."
+                            )
+                            remote_ips = [{"ip": target, "mask": 32}]
 
                         sshmap_logger.debug(
                             f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}"
