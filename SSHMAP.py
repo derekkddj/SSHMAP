@@ -281,7 +281,45 @@ async def handle_target(
         for port in ssh_ports:
             sshmap_logger.debug(f"Scanning {target} port {port}.")
             # We can not check open ports if we are using a jump host OR a proxy, so we just try to connect to all ports
-            if current_depth > 1 or proxy_url or await check_open_port(target, port):
+            port_check_executed = False
+            if current_depth > 1 or proxy_url:
+                port_is_open_or_forced = True
+                sshmap_logger.debug(
+                    f"[{target}:{port}] check_open_port skipped (jump/proxy path)."
+                )
+            else:
+                if (
+                    not force_rescan
+                    and CONFIG.get("record_connection_attempts", True)
+                    and source_host
+                ):
+                    try:
+                        candidate_credentials = credential_store.get_credentials_host_and_bruteforce(target, port)
+                        attempted_set = (
+                            attempt_store.get_attempted_credentials(source_host, target, port)
+                            or set()
+                        )
+                        all_attempted = all(
+                            (cred.user, cred.method, cred.secret) in attempted_set
+                            for cred in candidate_credentials
+                        )
+                        if all_attempted:
+                            sshmap_logger.debug(
+                                f"[{target}:{port}] skipping target port (all credentials already attempted from {source_host})."
+                            )
+                            continue
+                    except Exception as e:
+                        sshmap_logger.debug(
+                            f"[{target}:{port}] attempt-history pre-check failed ({type(e).__name__}: {e}); falling back to check_open_port."
+                        )
+
+                port_check_executed = True
+                port_is_open_or_forced = await check_open_port(target, port)
+                sshmap_logger.debug(
+                    f"[{target}:{port}] check_open_port executed={port_check_executed}, result={port_is_open_or_forced}"
+                )
+
+            if port_is_open_or_forced:
                 sshmap_logger.debug(
                     f"[{target}] Port {port} is open, starting bruteforce..."
                 )
