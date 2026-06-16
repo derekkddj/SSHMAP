@@ -302,6 +302,11 @@ async def handle_target(
                             attempt_store.get_attempted_credentials(source_host, target, port)
                             or set()
                         )
+                        if ("_portcheck", "port_closed", "closed") in attempted_set:
+                            sshmap_logger.debug(
+                                f"[{target}:{port}] skipping target port (previous closed-port marker from {source_host})."
+                            )
+                            continue
                         all_attempted = all(
                             (cred.user, cred.method, cred.secret) in attempted_set
                             for cred in candidate_credentials
