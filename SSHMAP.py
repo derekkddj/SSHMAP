@@ -39,7 +39,7 @@ from modules.helpers.AsyncRandomQueue import AsyncRandomQueue
 from modules.notifier import notifier
 
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 
 # Setup neo4j for graph data (successful connections)
 graph = graphdb.GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])

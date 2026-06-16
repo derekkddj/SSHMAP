@@ -238,12 +238,12 @@ async def get_remote_ip(ssh_client):
     sshmap_logger.debug(f"Getting remote IP addresses for {ssh_client.host}")
     ip_info = []
 
-    # Try `ip` command first
+    # Try `ip` command first (modern Linux)
     out, err, exit_status = await ssh_client.exec_command_with_stderr(
         "ip -o -4 addr show | awk '{print $4}'"
     )
     if exit_status != 0 or err or not out.strip():
-        sshmap_logger.warning(
+        sshmap_logger.debug(
             f"`ip` command failed or missing (exit_status={exit_status}): {err.strip()}"
         )
     else:
@@ -254,38 +254,116 @@ async def get_remote_ip(ssh_client):
                 ip, mask = cidr.split("/")
                 ip_info.append({"ip": ip, "mask": int(mask)})
 
-    # Fallback to `ifconfig` if `ip` failed or returned nothing
+    # Fallback to `netstat -in` + `ifconfig` for HP-UX, Solaris, AIX, etc.
+    # Uses a single awk command to extract interfaces and parse netmasks accurately
+    if not ip_info:
+        # This command extracts interface names from netstat, then queries each with ifconfig
+        # and parses the hex netmask using awk's bit-counting logic
+        cmd = """for sub_if in $(netstat -in | awk '{print $1}' | grep -E 'lan|eth|en|bond|em|net|ge|hme|bge|e1000g|igb|ixgbe'); do
+    ifconfig $sub_if 2>/dev/null | awk -v iface="$sub_if" '
+    /inet/ && !/127\\.0\\.0\\.1/ {
+        ip = $2; hex = $4; gsub(/^0x/, "", hex);
+        
+        # Binary bit-count lookup table for hex chars
+        m["0"]=0; m["1"]=1; m["2"]=1; m["3"]=2; m["4"]=1; m["5"]=2; m["6"]=2; m["7"]=3;
+        m["8"]=1; m["9"]=2; m["a"]=2; m["b"]=3; m["c"]=2; m["d"]=3; m["e"]=3; m["f"]=4;
+        m["A"]=2; m["B"]=3; m["C"]=2; m["D"]=3; m["E"]=3; m["F"]=4;
+        
+        # Calculate CIDR by summing bit weights of each hex char
+        cidr = 0;
+        for(i=1; i<=length(hex); i++) { 
+            cidr += m[substr(hex, i, 1)]; 
+        }
+        
+        # Output in format: IP/MASK
+        printf "%s/%d\\n", ip, cidr;
+    }'
+done"""
+        
+        out, err, exit_status = await ssh_client.exec_command_with_stderr(cmd)
+        if exit_status != 0 or not out.strip():
+            sshmap_logger.debug(
+                f"`netstat -in` + ifconfig command failed or missing (exit_status={exit_status}): {err.strip()}"
+            )
+        else:
+            if err and err.strip():
+                sshmap_logger.debug(f"netstat+ifconfig stderr (non-fatal): {err.strip()}")
+            
+            sshmap_logger.debug(f"netstat+ifconfig output: {out}")
+            
+            # Parse the output: each line is "IP/MASK"
+            lines = out.strip().splitlines()
+            for line in lines:
+                line = line.strip()
+                if "/" in line and "127.0.0.1" not in line:
+                    try:
+                        ip, mask = line.split("/")
+                        ip_info.append({"ip": ip, "mask": int(mask)})
+                        sshmap_logger.debug(f"Parsed IP from netstat+ifconfig: {ip}/{mask}")
+                    except Exception as e:
+                        sshmap_logger.warning(f"Error parsing line '{line}': {e}")
+
+    # Fallback to traditional `ifconfig` if previous methods failed
     if not ip_info:
         out, err, exit_status = await ssh_client.exec_command_with_stderr("ifconfig")
-        if exit_status != 0 or err or not out.strip():
-            sshmap_logger.warning(
+        if exit_status != 0 or not out.strip():
+            sshmap_logger.debug(
                 f"`ifconfig` command failed or missing (exit_status={exit_status}): {err.strip()}"
             )
         else:
+            if err and err.strip():
+                sshmap_logger.debug(f"`ifconfig` stderr (non-fatal): {err.strip()}")
             lines = out.strip().splitlines()
-            current_ip = None
             for line in lines:
                 line = line.strip()
-                if "inet " in line and "127.0.0.1" not in line:
-                    parts = line.split()
-                    for i, part in enumerate(parts):
-                        if part == "inet":
-                            current_ip = parts[i + 1]
-                        elif "netmask" in part:
-                            netmask = parts[i + 1]
-                            try:
+                ip_match = re.search(r"\binet\s+(?:addr:)?(\d+\.\d+\.\d+\.\d+)\b", line)
+                if not ip_match:
+                    continue
+
+                ip_addr = ip_match.group(1)
+                if ip_addr.startswith("127."):
+                    continue
+
+                mask = None
+                cidr_match = re.search(r"\b/(\d{1,2})\b", line)
+                if cidr_match:
+                    mask = int(cidr_match.group(1))
+                else:
+                    netmask_match = re.search(
+                        r"(?:\bnetmask\s+(0x[0-9a-fA-F]+|\d+\.\d+\.\d+\.\d+)|\bMask:(\d+\.\d+\.\d+\.\d+))",
+                        line,
+                    )
+                    if netmask_match:
+                        netmask = netmask_match.group(1) or netmask_match.group(2)
+                        try:
+                            if netmask.startswith("0x"):
+                                # macOS/BSD ifconfig style netmask, e.g. 0xffffff00
+                                netmask_int = int(netmask, 16)
+                                mask = bin(netmask_int).count("1")
+                            else:
                                 mask = sum(
                                     [bin(int(x)).count("1") for x in netmask.split(".")]
                                 )
-                                if current_ip:
-                                    ip_info.append({"ip": current_ip, "mask": mask})
-                            except Exception as e:
-                                sshmap_logger.warning(f"Netmask parse error: {e}")
+                        except Exception as e:
+                            sshmap_logger.warning(f"Netmask parse error: {e}")
+
+                ip_info.append({"ip": ip_addr, "mask": mask if mask is not None else 32})
+
+    # Remove duplicates while preserving order
+    if ip_info:
+        deduped = []
+        seen = set()
+        for iface in ip_info:
+            key = (iface["ip"], iface["mask"])
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(iface)
+        ip_info = deduped
 
     # Final fallback
     if not ip_info:
         try:
-
             peer_ip = ssh_client.connection.get_extra_info("peername")[0]
             if not peer_ip:
                 peer_ip = ssh_client.get_host()
