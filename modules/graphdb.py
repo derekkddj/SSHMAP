@@ -343,28 +343,28 @@ class GraphDB:
     def add_ssh_connection(
         self, from_hostname, to_hostname, user, method, creds, ip, port
     ):
+        """
+        Add or update an SSH connection in the graph.
+        If the connection already exists (same user, method, creds, ip, port), 
+        only update the timestamp. Otherwise, create a new edge.
+        
+        Note: MERGE with properties on relationships works correctly in Neo4j.
+        It will match existing relationships that have AT LEAST the specified properties,
+        even if they have additional properties like 'time' or 'first_seen'.
+        """
         # Get current time in milliseconds since epoch
-        currentmilis = round(time.time() * 1000)  # Uncomment if you want
-        # We have to use MERGE here to avoid duplicates
-        # If the relationship already exists, it will not create a new one
-        # If it does not exist, it will create a new one with the provided properties
-        # Update the "time" property of the existing SSH_ACCESS relationship if it exists,
-        # otherwise create a new one with all properties.
+        currentmilis = round(time.time() * 1000)
+        
         with self.driver.session() as session:
+            # MERGE on relationship with identifying properties
+            # Neo4j will match existing edges that have these properties (even with additional props)
             session.run(
                 """
-            MATCH (src:Host {hostname: $from_hostname})-[r:SSH_ACCESS]->(dst:Host {hostname: $to_hostname})
-            WHERE r.user = $user AND r.method = $method AND r.creds = $creds AND r.ip = $ip AND r.port = $port
-            SET r.time = $currentmilis
-            WITH count(r) AS updated
-            CALL apoc.do.when(
-                updated = 0,
-                'MATCH (src:Host {hostname: $from_hostname}), (dst:Host {hostname: $to_hostname}) MERGE (src)-[r:SSH_ACCESS {user: $user, method: $method, creds: $creds, ip: $ip, port: $port}]->(dst) SET r.time = $currentmilis',
-                '',
-                {from_hostname: $from_hostname, to_hostname: $to_hostname, user: $user, method: $method, creds: $creds, ip: $ip, port: $port, currentmilis: $currentmilis}
-            ) YIELD value
-            RETURN value
-            """,
+                MATCH (src:Host {hostname: $from_hostname}), (dst:Host {hostname: $to_hostname})
+                MERGE (src)-[r:SSH_ACCESS {user: $user, method: $method, creds: $creds, ip: $ip, port: $port}]->(dst)
+                ON CREATE SET r.time = $currentmilis, r.first_seen = $currentmilis
+                ON MATCH SET r.time = $currentmilis
+                """,
                 from_hostname=from_hostname,
                 to_hostname=to_hostname,
                 user=user,
