@@ -127,6 +127,16 @@ class ScanPauseController:
             self._pending_block_requests.append(jump_host)
         return True
 
+    def request_unblock_jumphost(self, jump_host):
+        jump_host = (jump_host or "").strip()
+        if not jump_host:
+            return False
+        with self._lock:
+            if jump_host not in self._blocked_jumphosts:
+                return False
+            self._blocked_jumphosts.remove(jump_host)
+        return True
+
     def is_jumphost_blocked(self, jump_host):
         if not jump_host:
             return False
@@ -176,6 +186,26 @@ def start_pause_key_listener(controller):
                     f"Jumphost '{jump_host}' is already blocked."
                 )
 
+        def _prompt_unblock_host():
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            sys.stdout.write("\nEnter jumphost to unblock (blank to cancel): ")
+            sys.stdout.flush()
+            jump_host = sys.stdin.readline().strip()
+            tty.setcbreak(fd)
+
+            if not jump_host:
+                sshmap_logger.info("Unblock jumphost cancelled.")
+                return
+
+            if controller.request_unblock_jumphost(jump_host):
+                sshmap_logger.success(
+                    f"[UNBLOCKED] Jumphost '{jump_host}' unblocked. New tasks can run again."
+                )
+            else:
+                sshmap_logger.info(
+                    f"Jumphost '{jump_host}' is not currently blocked."
+                )
+
         try:
             tty.setcbreak(fd)
             while not controller.stop_event.is_set():
@@ -187,6 +217,8 @@ def start_pause_key_listener(controller):
                     controller.toggle()
                 elif key and key.lower() == "k":
                     _prompt_block_host()
+                elif key and key.lower() == "u":
+                    _prompt_unblock_host()
         except Exception as e:
             sshmap_logger.debug(f"Pause hotkey listener stopped: {e}")
         finally:
@@ -198,7 +230,7 @@ def start_pause_key_listener(controller):
         daemon=True,
     )
     listener_thread.start()
-    sshmap_logger.display("Hotkeys: 'p' pause/resume, 'k' block jumphost tasks.")
+    sshmap_logger.display("Hotkeys: 'p' pause/resume, 'k' block jumphost, 'u' unblock jumphost.")
     return listener_thread
 
 
