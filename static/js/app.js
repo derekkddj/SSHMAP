@@ -9,7 +9,8 @@ let isPathView = false;
 let filterState = {
     users: [],
     methods: [],
-    minConnections: 0
+    minConnections: 0,
+    selectedNodeHops: 0
 };
 let uniqueUsers = new Set();
 let uniqueMethods = new Set();
@@ -17,6 +18,7 @@ let mobileUiInitialized = false;
 let pathHostnames = [];
 let pathSuggestionsPopup = null;
 let activePathInputId = null;
+let selectedNodeId = null;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -53,7 +55,12 @@ function bindNetworkEvents(container) {
     network.on('selectNode', function(params) {
         if (params.nodes.length > 0) {
             const nodeId = params.nodes[0];
+            const previousSelectedNode = selectedNodeId;
+            selectedNodeId = nodeId;
             loadNodeDetails(nodeId);
+            if (filterState.selectedNodeHops > 0 && previousSelectedNode !== nodeId) {
+                applyFilters();
+            }
         }
     });
 
@@ -65,6 +72,11 @@ function bindNetworkEvents(container) {
     });
 
     network.on('deselectNode', function() {
+        const hadSelection = selectedNodeId !== null;
+        selectedNodeId = null;
+        if (filterState.selectedNodeHops > 0 && hadSelection) {
+            applyFilters();
+        }
         showDefaultInfo();
     });
 
@@ -874,13 +886,17 @@ function restoreFullGraph() {
     filterState = {
         users: [],
         methods: [],
-        minConnections: 0
+        minConnections: 0,
+        selectedNodeHops: 0
     };
+    selectedNodeId = null;
     
     // Reset filter UI
     document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = true);
     document.getElementById('minConnectionsSlider').value = 0;
     document.getElementById('minConnectionsValue').textContent = '0';
+    document.getElementById('selectedNodeHopsSlider').value = 0;
+    document.getElementById('selectedNodeHopsValue').textContent = 'All';
     
     applyFilters();
     showDefaultInfo();
@@ -927,6 +943,7 @@ function onFilterChange() {
     filterState.users = Array.from(document.querySelectorAll('.filter-checkbox[data-type="user"]:checked')).map(cb => cb.value);
     filterState.methods = Array.from(document.querySelectorAll('.filter-checkbox[data-type="method"]:checked')).map(cb => cb.value);
     filterState.minConnections = parseInt(document.getElementById('minConnectionsSlider').value) || 0;
+    filterState.selectedNodeHops = parseInt(document.getElementById('selectedNodeHopsSlider').value) || 0;
     
     applyFilters();
 }
@@ -997,6 +1014,13 @@ function applyFilters() {
     filteredEdges = filteredEdges.filter(e => 
         filteredNodeIds.has(e.from) && filteredNodeIds.has(e.to)
     );
+
+    if (selectedNodeId !== null && filterState.selectedNodeHops > 0) {
+        const visibleIds = getNodesWithinHops(selectedNodeId, filterState.selectedNodeHops, filteredEdges);
+        filteredNodes = filteredNodes.filter(n => visibleIds.has(n.id));
+        const hopFilteredNodeIds = new Set(filteredNodes.map(n => n.id));
+        filteredEdges = filteredEdges.filter(e => hopFilteredNodeIds.has(e.from) && hopFilteredNodeIds.has(e.to));
+    }
     
     // Add labels to edges for better visibility
     filteredEdges = filteredEdges.map(edge => ({
@@ -1010,6 +1034,10 @@ function applyFilters() {
     edges.clear();
     nodes.add(filteredNodes);
     edges.add(filteredEdges);
+
+    if (selectedNodeId !== null && filteredNodes.some(n => n.id === selectedNodeId)) {
+        network.selectNodes([selectedNodeId]);
+    }
     
     updateStats(filteredNodes.length, filteredEdges.length);
     
@@ -1021,6 +1049,44 @@ function applyFilters() {
             }
         });
     }, 100);
+}
+
+function getNodesWithinHops(startNodeId, maxHops, edgeList) {
+    if (maxHops <= 0) {
+        return new Set(allNodes.map(n => n.id));
+    }
+
+    const adjacency = new Map();
+    edgeList.forEach(edge => {
+        if (!adjacency.has(edge.from)) adjacency.set(edge.from, new Set());
+        if (!adjacency.has(edge.to)) adjacency.set(edge.to, new Set());
+        adjacency.get(edge.from).add(edge.to);
+        adjacency.get(edge.to).add(edge.from);
+    });
+
+    if (!adjacency.has(startNodeId)) {
+        return new Set([startNodeId]);
+    }
+
+    const visited = new Set([startNodeId]);
+    const queue = [{ id: startNodeId, depth: 0 }];
+
+    while (queue.length > 0) {
+        const current = queue.shift();
+        if (current.depth >= maxHops) {
+            continue;
+        }
+
+        const neighbors = adjacency.get(current.id) || new Set();
+        neighbors.forEach(neighborId => {
+            if (!visited.has(neighborId)) {
+                visited.add(neighborId);
+                queue.push({ id: neighborId, depth: current.depth + 1 });
+            }
+        });
+    }
+
+    return visited;
 }
 
 // Toggle filter panel
@@ -1041,6 +1107,13 @@ function toggleFilters() {
 function updateMinConnections(value) {
     document.getElementById('minConnectionsValue').textContent = value;
     filterState.minConnections = parseInt(value);
+    applyFilters();
+}
+
+function updateSelectedNodeHops(value) {
+    const parsedValue = parseInt(value) || 0;
+    document.getElementById('selectedNodeHopsValue').textContent = parsedValue === 0 ? 'All' : String(parsedValue);
+    filterState.selectedNodeHops = parsedValue;
     applyFilters();
 }
 

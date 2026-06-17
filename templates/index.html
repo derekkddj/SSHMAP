@@ -1136,6 +1136,12 @@
                                oninput="updateMinConnections(this.value)" class="connection-slider">
                         <span id="minConnectionsValue" class="slider-value">0</span>
                     </div>
+                    <div class="filter-subsection">
+                        <h5>🧭 Selected Node Hops</h5>
+                        <input type="range" id="selectedNodeHopsSlider" min="0" max="10" value="0"
+                               oninput="updateSelectedNodeHops(this.value)" class="connection-slider">
+                        <span id="selectedNodeHopsValue" class="slider-value">All</span>
+                    </div>
                     <button class="btn btn-secondary" onclick="restoreFullGraph()" style="width: 100%; margin-top: 10px;">🔄 Reset</button>
                 </div>
             </div>
