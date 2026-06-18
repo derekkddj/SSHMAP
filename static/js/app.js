@@ -21,6 +21,7 @@ let pathSuggestionsPopup = null;
 let activePathInputId = null;
 let selectedNodeId = null;
 let physicsEnabled = true;
+let physicsManualOverride = null; // null = auto, true = force on, false = force off
 let searchResultNodes = null;
 let searchResultEdges = null;
 
@@ -992,6 +993,39 @@ function restoreFullGraph() {
     showDefaultInfo();
 }
 
+// Toggle physics manually
+function togglePhysics() {
+    if (physicsManualOverride === null) {
+        // Currently auto, switch to force off
+        physicsManualOverride = false;
+    } else if (physicsManualOverride === false) {
+        // Currently off, switch to force on
+        physicsManualOverride = true;
+    } else {
+        // Currently on, switch to auto
+        physicsManualOverride = null;
+    }
+    
+    applyFilters(); // Re-apply to update physics state
+}
+
+// Update physics button display
+function updatePhysicsButton() {
+    const btn = document.getElementById('physicsToggleBtn');
+    if (!btn) return;
+    
+    if (physicsManualOverride === null) {
+        btn.textContent = physicsEnabled ? '⚡ Physics: Auto (On)' : '⚡ Physics: Auto (Off)';
+        btn.title = 'Physics auto-managed. Click to force off.';
+    } else if (physicsManualOverride === true) {
+        btn.textContent = '⚡ Physics: On';
+        btn.title = 'Physics forced on. Click to reset to auto.';
+    } else {
+        btn.textContent = '⚡ Physics: Off';
+        btn.title = 'Physics forced off. Click to force on.';
+    }
+}
+
 // Populate filter options
 function populateFilterOptions() {
     const userFilterDiv = document.getElementById('userFilters');
@@ -1164,36 +1198,37 @@ function applyFilters() {
     const totalAvailable = edgesBeforeLimit;
     updateStats(filteredNodes.length, filteredEdges.length, totalAvailable, isLargeGraph);
 
-    // For large graphs, disable physics immediately
-    if (isLargeGraph) {
-        if (physicsEnabled) {
-            network.setOptions({ 
-                physics: { enabled: false },
-                interaction: {
-                    zoomView: true,
-                    dragView: true
+    // Handle physics based on manual override or graph size
+    const shouldEnablePhysics = physicsManualOverride !== null ? physicsManualOverride : !isLargeGraph;
+    
+    if (shouldEnablePhysics && !physicsEnabled) {
+        // Enable physics
+        network.setOptions({ 
+            physics: { 
+                enabled: true, 
+                solver: 'barnesHut',
+                stabilization: {
+                    enabled: true,
+                    iterations: isLargeGraph ? 50 : 200
                 }
-            });
-            physicsEnabled = false;
-            // Force redraw to ensure canvas is responsive
-            network.redraw();
-        }
-    } else {
-        // Re-enable physics for small graphs
-        if (!physicsEnabled) {
-            network.setOptions({ 
-                physics: { 
-                    enabled: true, 
-                    solver: 'barnesHut',
-                    stabilization: {
-                        enabled: true,
-                        iterations: 200
-                    }
-                } 
-            });
-            physicsEnabled = true;
-        }
+            } 
+        });
+        physicsEnabled = true;
+    } else if (!shouldEnablePhysics && physicsEnabled) {
+        // Disable physics
+        network.setOptions({ 
+            physics: { enabled: false },
+            interaction: {
+                zoomView: true,
+                dragView: true
+            }
+        });
+        physicsEnabled = false;
+        network.redraw();
     }
+
+    // Update physics button state
+    updatePhysicsButton();
 
     setTimeout(() => {
         network.fit({
