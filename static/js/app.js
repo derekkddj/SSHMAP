@@ -1322,8 +1322,10 @@ function showLoading(show) {
 
 // Update statistics
 function updateStats(nodeCount, edgeCount, totalAvailable, isLargeGraph) {
-    document.getElementById('nodeCount').textContent = nodeCount;
-    document.getElementById('edgeCount').textContent = edgeCount;
+    // Update total database counts (from allNodes/allEdges)
+    document.getElementById('totalNodeCount').textContent = allNodes.length;
+    document.getElementById('totalEdgeCount').textContent = allEdges.length;
+    
     updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph);
     updateInsights(nodes.get(), edges.get());
 }

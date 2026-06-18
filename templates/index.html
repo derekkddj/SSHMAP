@@ -1167,7 +1167,7 @@
                     </button>
                     <label style="display: flex; align-items: flex-start; gap: 8px; color: #9ca3af; font-size: 13px; line-height: 1.4;">
                         <input type="checkbox" id="replaceExistingImport" style="margin-top: 2px;">
-                        <span>Replace existing database contents before import</span>
+                        <span>Delete existing database before import</span>
                     </label>
                     <input type="file" id="importGraphFile" accept=".json,application/json" onchange="handleImportGraphFile(this)" style="display: none;">
                     <button class="btn btn-secondary" onclick="cleanDatabase()" style="width: 100%;">
@@ -1178,15 +1178,15 @@
 
             <!-- Stats Section -->
             <div class="sidebar-section">
-                <div class="section-header">📊 Statistics</div>
+                <div class="section-header">📊 Database Statistics</div>
                 <div class="stats-grid">
                     <div class="stat-item">
-                        <div class="stat-value" id="nodeCount">0</div>
-                        <div class="stat-label">Nodes</div>
+                        <div class="stat-value" id="totalNodeCount">0</div>
+                        <div class="stat-label">Total Nodes</div>
                     </div>
                     <div class="stat-item">
-                        <div class="stat-value" id="edgeCount">0</div>
-                        <div class="stat-label">Connections</div>
+                        <div class="stat-value" id="totalEdgeCount">0</div>
+                        <div class="stat-label">Total Connections</div>
                     </div>
                 </div>
             </div>
