@@ -1080,6 +1080,9 @@ function applyFilters() {
     // Use search results if search is active, otherwise use all data
     const baseNodes = searchResultNodes || allNodes;
     const baseEdges = searchResultEdges || allEdges;
+    
+    // For hop calculations, always use the full graph (allEdges) to allow proper expansion
+    const hopCalculationEdges = allEdges;
 
     // Filter edges by user/method
     let filteredEdges = baseEdges;
@@ -1147,14 +1150,24 @@ function applyFilters() {
     // Apply hop filtering BEFORE filtering edges to nodes
     // This ensures hop distance is calculated on the full graph structure
     if (selectedNodeId !== null && filterState.selectedNodeHops > 0) {
-        // Calculate hops on the base graph (all edges or search results)
-        const visibleIds = getNodesWithinHops(selectedNodeId, filterState.selectedNodeHops, baseEdges);
+        // Calculate hops on the FULL graph to allow proper expansion beyond search results
+        const visibleIds = getNodesWithinHops(selectedNodeId, filterState.selectedNodeHops, hopCalculationEdges);
+        
+        // Filter to include only visible nodes (that also passed other filters)
         filteredNodes = filteredNodes.filter(n => visibleIds.has(n.id));
         
+        // Also include nodes from the full graph that are within hops, even if not in search results
+        const allNodesMap = new Map(allNodes.map(n => [n.id, n]));
+        visibleIds.forEach(nodeId => {
+            if (!filteredNodes.find(n => n.id === nodeId) && allNodesMap.has(nodeId)) {
+                filteredNodes.push(allNodesMap.get(nodeId));
+            }
+        });
+        
         // When hop filtering is active, we need to include ALL edges between visible nodes
-        // not just the ones that passed through earlier filters
+        // from the full graph, not just search results
         const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
-        filteredEdges = baseEdges.filter(e =>
+        filteredEdges = hopCalculationEdges.filter(e =>
             filteredNodeIds.has(e.from) && filteredNodeIds.has(e.to)
         );
         
