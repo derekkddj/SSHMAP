@@ -524,24 +524,25 @@ function performSearch(query) {
                 return;
             }
             
-            // Get IDs of matching nodes and connected nodes
+            // Get IDs of matching nodes
             const matchingNodeIds = new Set(data.nodes.map(n => n.id));
-            const connectedNodeIds = new Set();
             
-            // Add nodes that are connected to matching edges
-            data.edges.forEach(edge => {
+            // For matching nodes, get ALL their edges (incoming and outgoing)
+            const relevantEdges = allEdges.filter(edge => 
+                matchingNodeIds.has(edge.from) || matchingNodeIds.has(edge.to)
+            );
+            
+            // Get all nodes connected by these edges
+            const connectedNodeIds = new Set();
+            matchingNodeIds.forEach(id => connectedNodeIds.add(id));
+            relevantEdges.forEach(edge => {
                 connectedNodeIds.add(edge.from);
                 connectedNodeIds.add(edge.to);
             });
             
-            // Combine all relevant node IDs
-            const relevantNodeIds = new Set([...matchingNodeIds, ...connectedNodeIds]);
-            
             // Store search results as the base for filtering
-            searchResultNodes = allNodes.filter(n => relevantNodeIds.has(n.id));
-            searchResultEdges = allEdges.filter(e => 
-                relevantNodeIds.has(e.from) && relevantNodeIds.has(e.to)
-            );
+            searchResultNodes = allNodes.filter(n => connectedNodeIds.has(n.id));
+            searchResultEdges = relevantEdges;
             
             // Store matching node IDs for highlighting
             window.searchHighlightNodes = matchingNodeIds;
@@ -549,14 +550,27 @@ function performSearch(query) {
             // Apply filters on search results
             applyFilters();
             
-            // Fit to show filtered results
+            // Fit to show filtered results, focusing on the matched node
             setTimeout(() => {
-                network.fit({
-                    animation: {
-                        duration: 500,
-                        easingFunction: 'easeInOutQuad'
-                    }
-                });
+                if (matchingNodeIds.size === 1) {
+                    // If single node match, focus on it
+                    const nodeId = Array.from(matchingNodeIds)[0];
+                    network.focus(nodeId, {
+                        scale: 1.5,
+                        animation: {
+                            duration: 500,
+                            easingFunction: 'easeInOutQuad'
+                        }
+                    });
+                } else {
+                    // Multiple matches, fit all
+                    network.fit({
+                        animation: {
+                            duration: 500,
+                            easingFunction: 'easeInOutQuad'
+                        }
+                    });
+                }
             }, 100);
         })
         .catch(error => {
@@ -1763,24 +1777,25 @@ function displaySearchPopup(data, query) {
 
 // Filter graph based on search results
 function filterGraphBySearchResults(data) {
-    // Get IDs of matching nodes and connected nodes
+    // Get IDs of matching nodes
     const matchingNodeIds = new Set(data.nodes.map(n => n.id));
-    const connectedNodeIds = new Set();
     
-    // Add nodes that are connected to matching edges
-    data.edges.forEach(edge => {
+    // For matching nodes, get ALL their edges (incoming and outgoing)
+    const relevantEdges = allEdges.filter(edge => 
+        matchingNodeIds.has(edge.from) || matchingNodeIds.has(edge.to)
+    );
+    
+    // Get all nodes connected by these edges
+    const connectedNodeIds = new Set();
+    matchingNodeIds.forEach(id => connectedNodeIds.add(id));
+    relevantEdges.forEach(edge => {
         connectedNodeIds.add(edge.from);
         connectedNodeIds.add(edge.to);
     });
     
-    // Combine all relevant node IDs
-    const relevantNodeIds = new Set([...matchingNodeIds, ...connectedNodeIds]);
-    
     // Store search results as the base for filtering
-    searchResultNodes = allNodes.filter(n => relevantNodeIds.has(n.id));
-    searchResultEdges = allEdges.filter(e => 
-        relevantNodeIds.has(e.from) && relevantNodeIds.has(e.to)
-    );
+    searchResultNodes = allNodes.filter(n => connectedNodeIds.has(n.id));
+    searchResultEdges = relevantEdges;
     
     // Store matching node IDs for highlighting
     window.searchHighlightNodes = matchingNodeIds;
@@ -1788,14 +1803,27 @@ function filterGraphBySearchResults(data) {
     // Apply filters on search results
     applyFilters();
     
-    // Fit to show filtered results
+    // Fit to show filtered results, focusing on the matched node
     setTimeout(() => {
-        network.fit({
-            animation: {
-                duration: 500,
-                easingFunction: 'easeInOutQuad'
-            }
-        });
+        if (matchingNodeIds.size === 1) {
+            // If single node match, focus on it
+            const nodeId = Array.from(matchingNodeIds)[0];
+            network.focus(nodeId, {
+                scale: 1.5,
+                animation: {
+                    duration: 500,
+                    easingFunction: 'easeInOutQuad'
+                }
+            });
+        } else {
+            // Multiple matches, fit all
+            network.fit({
+                animation: {
+                    duration: 500,
+                    easingFunction: 'easeInOutQuad'
+                }
+            });
+        }
     }, 100);
 }
 
