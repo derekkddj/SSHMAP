@@ -1144,18 +1144,19 @@ function applyFilters() {
         };
     });
 
+    // Apply hop filtering BEFORE filtering edges to nodes
+    // This ensures hop distance is calculated on the full graph structure
+    if (selectedNodeId !== null && filterState.selectedNodeHops > 0) {
+        // Calculate hops on the base graph (all edges or search results)
+        const visibleIds = getNodesWithinHops(selectedNodeId, filterState.selectedNodeHops, baseEdges);
+        filteredNodes = filteredNodes.filter(n => visibleIds.has(n.id));
+    }
+
     // Filter edges to only include those between filtered nodes
     const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
     filteredEdges = filteredEdges.filter(e =>
         filteredNodeIds.has(e.from) && filteredNodeIds.has(e.to)
     );
-
-    if (selectedNodeId !== null && filterState.selectedNodeHops > 0) {
-        const visibleIds = getNodesWithinHops(selectedNodeId, filterState.selectedNodeHops, filteredEdges);
-        filteredNodes = filteredNodes.filter(n => visibleIds.has(n.id));
-        const hopFilteredNodeIds = new Set(filteredNodes.map(n => n.id));
-        filteredEdges = filteredEdges.filter(e => hopFilteredNodeIds.has(e.from) && hopFilteredNodeIds.has(e.to));
-    }
 
     // Add labels only for smaller graphs (performance)
     filteredEdges = filteredEdges.map(edge => {
