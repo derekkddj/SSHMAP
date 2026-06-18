@@ -20,6 +20,7 @@ let pathHostnames = [];
 let pathSuggestionsPopup = null;
 let activePathInputId = null;
 let selectedNodeId = null;
+let physicsEnabled = true;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -899,6 +900,7 @@ function changeLayout(layoutType) {
     if (visibleEdges.length > 800) {
         network.once('stabilizationIterationsDone', () => {
             network.setOptions({ physics: { enabled: false } });
+            physicsEnabled = false;
         });
     }
 
@@ -1108,12 +1110,14 @@ function applyFilters() {
     updateStats(filteredNodes.length, filteredEdges.length, totalAvailable, isLargeGraph);
 
     // For large graphs, stabilize and stop physics quickly
-    if (isLargeGraph && network.options.physics.enabled) {
+    if (isLargeGraph && physicsEnabled) {
         network.once('stabilizationIterationsDone', () => {
             network.setOptions({ physics: { enabled: false } });
+            physicsEnabled = false;
         });
-    } else if (!isLargeGraph && !network.options.physics.enabled) {
+    } else if (!isLargeGraph && !physicsEnabled) {
         network.setOptions({ physics: { enabled: true, solver: 'barnesHut' } });
+        physicsEnabled = true;
     }
 
     setTimeout(() => {
