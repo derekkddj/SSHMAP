@@ -1131,8 +1131,14 @@
                         <div id="methodFilters" class="filter-options"></div>
                     </div>
                     <div class="filter-subsection">
+                        <h5>🔗 Max Edges (most recent)</h5>
+                        <input type="range" id="maxEdgesSlider" min="0" max="3000" value="0" step="100"
+                               oninput="updateMaxEdges(this.value)" class="connection-slider">
+                        <span id="maxEdgesValue" class="slider-value">All</span>
+                    </div>
+                    <div class="filter-subsection">
                         <h5>🔗 Min Connections</h5>
-                        <input type="range" id="minConnectionsSlider" min="0" max="10" value="0" 
+                        <input type="range" id="minConnectionsSlider" min="0" max="20" value="0"
                                oninput="updateMinConnections(this.value)" class="connection-slider">
                         <span id="minConnectionsValue" class="slider-value">0</span>
                     </div>

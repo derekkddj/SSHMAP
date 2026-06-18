@@ -9,6 +9,7 @@ let isPathView = false;
 let filterState = {
     users: [],
     methods: [],
+    maxEdges: 0,
     minConnections: 0,
     selectedNodeHops: 0
 };
@@ -277,29 +278,34 @@ function getLayoutOptions(layoutType) {
             };
         
         case 'force':
-        default:
+        default: {
+            const edgeCount = allEdges.length || 0;
+            const isLarge = edgeCount > 500;
             return {
                 ...baseOptions,
                 layout: {
                     randomSeed: undefined
                 },
                 physics: {
-                    enabled: true,
+                    enabled: !isLarge,
                     stabilization: {
                         enabled: true,
-                        iterations: 400
+                        iterations: isLarge ? 100 : 400,
+                        onlyDynamicEdges: false,
+                        fit: true
                     },
                     solver: 'barnesHut',
                     barnesHut: {
-                        gravitationalConstant: -30000,
-                        centralGravity: 0.3,
-                        springLength: 150,
-                        springConstant: 0.04,
-                        damping: 0.2,
-                        avoidOverlap: 0.2
+                        gravitationalConstant: isLarge ? -50000 : -30000,
+                        centralGravity: isLarge ? 0.4 : 0.3,
+                        springLength: isLarge ? 100 : 150,
+                        springConstant: isLarge ? 0.005 : 0.04,
+                        damping: isLarge ? 0.4 : 0.2,
+                        avoidOverlap: isLarge ? 0 : 0.2
                     }
                 }
             };
+        }
     }
 }
 
@@ -307,7 +313,7 @@ function getLayoutOptions(layoutType) {
 function loadGraph() {
     showLoading(true);
     isPathView = false;
-    
+
     fetch('/api/graph')
         .then(response => response.json())
         .then(data => {
@@ -315,10 +321,43 @@ function loadGraph() {
                 showError('Error loading graph: ' + data.error);
                 return;
             }
-            
+
             allNodes = data.nodes;
             allEdges = data.edges;
-            
+
+            // Auto-detect large graph and set default edge limit
+            const slider = document.getElementById('maxEdgesSlider');
+            if (slider) {
+                const maxVal = parseInt(slider.max);
+                if (allEdges.length > 1000) {
+                    const autoLimit = Math.min(1000, maxVal);
+                    slider.max = Math.max(maxVal, allEdges.length);
+                    slider.value = autoLimit;
+                    filterState.maxEdges = autoLimit;
+                    document.getElementById('maxEdgesValue').textContent = String(autoLimit);
+                    showError(null);
+                    const container = document.getElementById('detailsContainer');
+                    container.innerHTML = `
+                        <div class="info-section" style="margin-top:20px;">
+                            <h3>⚠️ Large Graph Detected</h3>
+                            <p style="color:#f59e0b; font-size:13px; line-height:1.6;">
+                                Your graph has <strong>${allEdges.length}</strong> edges.<br>
+                                Auto-limited to <strong>${autoLimit}</strong> most recent for performance.<br><br>
+                                Adjust the <strong>Max Edges</strong> slider in the Filters panel<br>
+                                to show more or fewer connections.
+                            </p>
+                        </div>
+                    `;
+                } else {
+                    slider.max = Math.max(maxVal, allEdges.length);
+                }
+            }
+
+            // Auto-disable edge labels for large graphs
+            if (allEdges.length > 500) {
+                slider.step = 50;
+            }
+
             // Collect unique users and methods for filters
             uniqueUsers.clear();
             uniqueMethods.clear();
@@ -326,15 +365,15 @@ function loadGraph() {
                 uniqueUsers.add(edge.user);
                 uniqueMethods.add(edge.method);
             });
-            
+
             // Initialize filters
             populateFilterOptions();
-            
+
             // Apply current filters
             applyFilters();
-            
+
             showLoading(false);
-            
+
             // Fit the network to show all nodes
             setTimeout(() => {
                 network.fit({
@@ -824,37 +863,45 @@ function showOnlyPath(path) {
 // Change graph layout
 function changeLayout(layoutType) {
     currentLayout = layoutType;
-    
+
     // Show loading
     showLoading(true);
-    
+
     // Get current node and edge data
     const currentNodes = nodes.get();
     const currentEdges = edges.get();
-    
+
     // Destroy and recreate network with new layout
     if (network) {
         network.destroy();
     }
-    
+
     // Reinitialize network with new layout
     const container = document.getElementById('network');
     const data = {
         nodes: nodes,
         edges: edges
     };
-    
+
     const options = getLayoutOptions(layoutType);
     network = new vis.Network(container, data, options);
 
     bindNetworkEvents(container);
-    
+
     // Update UI to show active layout
     document.querySelectorAll('.layout-btn').forEach(btn => {
         btn.classList.remove('active');
     });
     document.querySelector(`[data-layout="${layoutType}"]`).classList.add('active');
-    
+
+    // For large graphs, stabilize then stop physics
+    const visibleEdges = edges.get();
+    if (visibleEdges.length > 800) {
+        network.once('stabilizationIterationsDone', () => {
+            network.setOptions({ physics: { enabled: false } });
+        });
+    }
+
     // Wait for stabilization then fit and hide loading
     network.once('stabilizationIterationsDone', function() {
         setTimeout(() => {
@@ -886,18 +933,24 @@ function restoreFullGraph() {
     filterState = {
         users: [],
         methods: [],
+        maxEdges: 0,
         minConnections: 0,
         selectedNodeHops: 0
     };
     selectedNodeId = null;
-    
+
     // Reset filter UI
     document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = true);
+    const maxEdgesSlider = document.getElementById('maxEdgesSlider');
+    if (maxEdgesSlider) {
+        maxEdgesSlider.value = 0;
+        document.getElementById('maxEdgesValue').textContent = 'All';
+    }
     document.getElementById('minConnectionsSlider').value = 0;
     document.getElementById('minConnectionsValue').textContent = '0';
     document.getElementById('selectedNodeHopsSlider').value = 0;
     document.getElementById('selectedNodeHopsValue').textContent = 'All';
-    
+
     applyFilters();
     showDefaultInfo();
 }
@@ -942,17 +995,18 @@ function onFilterChange() {
     // Update filter state
     filterState.users = Array.from(document.querySelectorAll('.filter-checkbox[data-type="user"]:checked')).map(cb => cb.value);
     filterState.methods = Array.from(document.querySelectorAll('.filter-checkbox[data-type="method"]:checked')).map(cb => cb.value);
+    filterState.maxEdges = parseInt(document.getElementById('maxEdgesSlider').value) || 0;
     filterState.minConnections = parseInt(document.getElementById('minConnectionsSlider').value) || 0;
     filterState.selectedNodeHops = parseInt(document.getElementById('selectedNodeHopsSlider').value) || 0;
-    
+
     applyFilters();
 }
 
 // Apply filters to the graph
 function applyFilters() {
     if (isPathView) return; // Don't apply filters in path view
-    
-    // Filter edges
+
+    // Filter edges by user/method
     let filteredEdges = allEdges;
     if (filterState.users.length > 0) {
         filteredEdges = filteredEdges.filter(e => filterState.users.includes(e.user));
@@ -960,13 +1014,22 @@ function applyFilters() {
     if (filterState.methods.length > 0) {
         filteredEdges = filteredEdges.filter(e => filterState.methods.includes(e.method));
     }
-    
+
+    // Limit edges by recency (most recent first)
+    const edgesBeforeLimit = filteredEdges.length;
+    if (filterState.maxEdges > 0 && filteredEdges.length > filterState.maxEdges) {
+        filteredEdges = filteredEdges
+            .slice()
+            .sort((a, b) => (b.time || 0) - (a.time || 0))
+            .slice(0, filterState.maxEdges);
+    }
+
     // Get nodes that have edges
     const connectedNodeIds = new Set();
     const nodeConnectionCount = {};
     const incomingCount = {};
     const outgoingCount = {};
-    
+
     filteredEdges.forEach(edge => {
         connectedNodeIds.add(edge.from);
         connectedNodeIds.add(edge.to);
@@ -975,43 +1038,40 @@ function applyFilters() {
         outgoingCount[edge.from] = (outgoingCount[edge.from] || 0) + 1;
         incomingCount[edge.to] = (incomingCount[edge.to] || 0) + 1;
     });
-    
+
     // Filter nodes by minimum connections
-    let filteredNodes = allNodes.filter(n => 
-        connectedNodeIds.has(n.id) && 
+    let filteredNodes = allNodes.filter(n =>
+        connectedNodeIds.has(n.id) &&
         (nodeConnectionCount[n.id] || 0) >= filterState.minConnections
     );
-    
+
     // Apply BloodHound-style colors based on node role
+    const isLargeGraph = filteredEdges.length > 800;
     filteredNodes = filteredNodes.map(node => {
         const incoming = incomingCount[node.id] || 0;
         const outgoing = outgoingCount[node.id] || 0;
-        
+
         let color;
         if (outgoing > 0 && incoming === 0) {
-            // Source nodes (only outgoing) - Green
             color = { border: '#22c55e', background: '#22c55e' };
         } else if (incoming > outgoing * 2) {
-            // High-value targets (more incoming) - Purple
             color = { border: '#a855f7', background: '#a855f7' };
         } else if (incoming > 0 && outgoing > 0) {
-            // Intermediate pivot nodes - Yellow
             color = { border: '#fbbf24', background: '#fbbf24' };
         } else {
-            // Default - Blue
             color = { border: '#6a7cf6', background: '#6a7cf6' };
         }
-        
+
         return {
             ...node,
             color: color,
             title: `${node.hostname}\nIPs: ${node.interfaces.join(', ')}\nIncoming: ${incoming}, Outgoing: ${outgoing}`
         };
     });
-    
+
     // Filter edges to only include those between filtered nodes
     const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
-    filteredEdges = filteredEdges.filter(e => 
+    filteredEdges = filteredEdges.filter(e =>
         filteredNodeIds.has(e.from) && filteredNodeIds.has(e.to)
     );
 
@@ -1021,14 +1081,19 @@ function applyFilters() {
         const hopFilteredNodeIds = new Set(filteredNodes.map(n => n.id));
         filteredEdges = filteredEdges.filter(e => hopFilteredNodeIds.has(e.from) && hopFilteredNodeIds.has(e.to));
     }
-    
-    // Add labels to edges for better visibility
-    filteredEdges = filteredEdges.map(edge => ({
-        ...edge,
-        label: `${edge.user}`,
-        title: `${edge.user}@${edge.ip}:${edge.port}\nMethod: ${edge.method}\nCreds: ${edge.creds}`
-    }));
-    
+
+    // Add labels only for smaller graphs (performance)
+    filteredEdges = filteredEdges.map(edge => {
+        const edgeData = {
+            ...edge,
+            title: `${edge.user}@${edge.ip}:${edge.port}\nMethod: ${edge.method}\nCreds: ${edge.creds}`
+        };
+        if (!isLargeGraph) {
+            edgeData.label = edge.user;
+        }
+        return edgeData;
+    });
+
     // Update graph
     nodes.clear();
     edges.clear();
@@ -1038,9 +1103,19 @@ function applyFilters() {
     if (selectedNodeId !== null && filteredNodes.some(n => n.id === selectedNodeId)) {
         network.selectNodes([selectedNodeId]);
     }
-    
-    updateStats(filteredNodes.length, filteredEdges.length);
-    
+
+    const totalAvailable = edgesBeforeLimit;
+    updateStats(filteredNodes.length, filteredEdges.length, totalAvailable, isLargeGraph);
+
+    // For large graphs, stabilize and stop physics quickly
+    if (isLargeGraph && network.options.physics.enabled) {
+        network.once('stabilizationIterationsDone', () => {
+            network.setOptions({ physics: { enabled: false } });
+        });
+    } else if (!isLargeGraph && !network.options.physics.enabled) {
+        network.setOptions({ physics: { enabled: true, solver: 'barnesHut' } });
+    }
+
     setTimeout(() => {
         network.fit({
             animation: {
@@ -1103,6 +1178,14 @@ function toggleFilters() {
     }
 }
 
+// Update max edges filter
+function updateMaxEdges(value) {
+    const parsedValue = parseInt(value) || 0;
+    document.getElementById('maxEdgesValue').textContent = parsedValue === 0 ? 'All' : String(parsedValue);
+    filterState.maxEdges = parsedValue;
+    applyFilters();
+}
+
 // Update min connections filter
 function updateMinConnections(value) {
     document.getElementById('minConnectionsValue').textContent = value;
@@ -1124,19 +1207,26 @@ function showLoading(show) {
 }
 
 // Update statistics
-function updateStats(nodeCount, edgeCount) {
+function updateStats(nodeCount, edgeCount, totalAvailable, isLargeGraph) {
     document.getElementById('nodeCount').textContent = nodeCount;
     document.getElementById('edgeCount').textContent = edgeCount;
-    updateGraphStatus(nodeCount, edgeCount);
+    updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph);
     updateInsights(nodes.get(), edges.get());
 }
 
-function updateGraphStatus(nodeCount, edgeCount) {
+function updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph) {
     const status = document.getElementById('graphStatus');
     if (!status) {
         return;
     }
-    status.innerHTML = `<strong>${nodeCount}</strong> nodes • <strong>${edgeCount}</strong> edges`;
+    let html = `<strong>${nodeCount}</strong> nodes • <strong>${edgeCount}</strong> edges`;
+    if (totalAvailable && totalAvailable > edgeCount) {
+        html += ` <span style="color:#f59e0b;">(showing ${edgeCount} of ${totalAvailable} most recent)</span>`;
+    }
+    if (isLargeGraph) {
+        html += ` <span style="color:#60a5fa;" title="Physics stabilized for performance">⚡</span>`;
+    }
+    status.innerHTML = html;
 }
 
 function updateInsights(visibleNodes, visibleEdges) {
