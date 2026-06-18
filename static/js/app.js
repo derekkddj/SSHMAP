@@ -1109,9 +1109,10 @@ function applyFilters() {
         filteredEdges = filteredEdges.filter(e => filterState.methods.includes(e.method));
     }
 
-    // Limit edges by recency (most recent first) - only if NOT in hop mode
+    // Limit edges by recency (most recent first) - skip if hop filtering is active with a selected node
     const edgesBeforeLimit = filteredEdges.length;
-    if (filterState.maxEdges > 0 && filteredEdges.length > filterState.maxEdges && filterState.selectedNodeHops === 0) {
+    const isHopFilterActive = selectedNodeId !== null && filterState.selectedNodeHops > 0;
+    if (filterState.maxEdges > 0 && filteredEdges.length > filterState.maxEdges && !isHopFilterActive) {
         filteredEdges = filteredEdges
             .slice()
             .sort((a, b) => (b.time || 0) - (a.time || 0))
