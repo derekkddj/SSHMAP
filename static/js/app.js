@@ -280,29 +280,32 @@ function getLayoutOptions(layoutType) {
         
         case 'force':
         default: {
-            const edgeCount = allEdges.length || 0;
+            // Check current visible edges, not all edges
+            const visibleEdges = edges.get();
+            const edgeCount = visibleEdges.length || 0;
             const isLarge = edgeCount > 500;
+            
             return {
                 ...baseOptions,
                 layout: {
-                    randomSeed: undefined
+                    randomSeed: 2
                 },
                 physics: {
-                    enabled: !isLarge,
+                    enabled: !isLarge, // Disable physics entirely for large graphs
                     stabilization: {
                         enabled: true,
-                        iterations: isLarge ? 100 : 400,
+                        iterations: isLarge ? 50 : 400,
                         onlyDynamicEdges: false,
                         fit: true
                     },
                     solver: 'barnesHut',
                     barnesHut: {
-                        gravitationalConstant: isLarge ? -50000 : -30000,
-                        centralGravity: isLarge ? 0.4 : 0.3,
-                        springLength: isLarge ? 100 : 150,
-                        springConstant: isLarge ? 0.005 : 0.04,
-                        damping: isLarge ? 0.4 : 0.2,
-                        avoidOverlap: isLarge ? 0 : 0.2
+                        gravitationalConstant: -30000,
+                        centralGravity: 0.3,
+                        springLength: 150,
+                        springConstant: 0.04,
+                        damping: 0.2,
+                        avoidOverlap: 0.2
                     }
                 }
             };
@@ -331,13 +334,19 @@ function loadGraph() {
             if (slider) {
                 const maxVal = parseInt(slider.max);
                 if (allEdges.length > 1000) {
-                    const autoLimit = Math.min(1000, maxVal);
+                    const autoLimit = Math.min(500, maxVal); // Auto-limit to 500 edges for performance
                     slider.max = Math.max(maxVal, allEdges.length);
                     slider.value = autoLimit;
                     filterState.maxEdges = autoLimit;
                     document.getElementById('maxEdgesValue').textContent = String(autoLimit);
                     showError(null);
                     const container = document.getElementById('detailsContainer');
+                    
+                    let layoutMsg = '';
+                    if (allEdges.length > 2000) {
+                        layoutMsg = `<br><br><strong>💡 Tip:</strong> For graphs this large, try the <strong>Hierarchical</strong> layout for better performance.`;
+                    }
+                    
                     container.innerHTML = `
                         <div class="info-section" style="margin-top:20px;">
                             <h3>⚠️ Large Graph Detected</h3>
@@ -345,7 +354,7 @@ function loadGraph() {
                                 Your graph has <strong>${allEdges.length}</strong> edges.<br>
                                 Auto-limited to <strong>${autoLimit}</strong> most recent for performance.<br><br>
                                 Adjust the <strong>Max Edges</strong> slider in the Filters panel<br>
-                                to show more or fewer connections.
+                                to show more or fewer connections.${layoutMsg}
                             </p>
                         </div>
                     `;
@@ -895,13 +904,13 @@ function changeLayout(layoutType) {
     });
     document.querySelector(`[data-layout="${layoutType}"]`).classList.add('active');
 
-    // For large graphs, stabilize then stop physics
+    // For large graphs, disable physics immediately
     const visibleEdges = edges.get();
-    if (visibleEdges.length > 800) {
-        network.once('stabilizationIterationsDone', () => {
-            network.setOptions({ physics: { enabled: false } });
-            physicsEnabled = false;
-        });
+    if (visibleEdges.length > 500) {
+        network.setOptions({ physics: { enabled: false } });
+        physicsEnabled = false;
+    } else {
+        physicsEnabled = true;
     }
 
     // Wait for stabilization then fit and hide loading
@@ -1048,7 +1057,7 @@ function applyFilters() {
     );
 
     // Apply BloodHound-style colors based on node role
-    const isLargeGraph = filteredEdges.length > 800;
+    const isLargeGraph = filteredEdges.length > 500;
     filteredNodes = filteredNodes.map(node => {
         const incoming = incomingCount[node.id] || 0;
         const outgoing = outgoingCount[node.id] || 0;
@@ -1109,15 +1118,27 @@ function applyFilters() {
     const totalAvailable = edgesBeforeLimit;
     updateStats(filteredNodes.length, filteredEdges.length, totalAvailable, isLargeGraph);
 
-    // For large graphs, stabilize and stop physics quickly
-    if (isLargeGraph && physicsEnabled) {
-        network.once('stabilizationIterationsDone', () => {
+    // For large graphs, disable physics immediately
+    if (isLargeGraph) {
+        if (physicsEnabled) {
             network.setOptions({ physics: { enabled: false } });
             physicsEnabled = false;
-        });
-    } else if (!isLargeGraph && !physicsEnabled) {
-        network.setOptions({ physics: { enabled: true, solver: 'barnesHut' } });
-        physicsEnabled = true;
+        }
+    } else {
+        // Re-enable physics for small graphs
+        if (!physicsEnabled) {
+            network.setOptions({ 
+                physics: { 
+                    enabled: true, 
+                    solver: 'barnesHut',
+                    stabilization: {
+                        enabled: true,
+                        iterations: 200
+                    }
+                } 
+            });
+            physicsEnabled = true;
+        }
     }
 
     setTimeout(() => {
