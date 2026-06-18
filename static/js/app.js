@@ -21,6 +21,8 @@ let pathSuggestionsPopup = null;
 let activePathInputId = null;
 let selectedNodeId = null;
 let physicsEnabled = true;
+let searchResultNodes = null;
+let searchResultEdges = null;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -169,7 +171,9 @@ function getLayoutOptions(layoutType) {
             navigationButtons: true,
             keyboard: false,
             multiselect: true,
-            selectable: true
+            selectable: true,
+            zoomView: true,
+            dragView: true
         },
         configure: {
             enabled: false
@@ -291,21 +295,21 @@ function getLayoutOptions(layoutType) {
                     randomSeed: 2
                 },
                 physics: {
-                    enabled: !isLarge, // Disable physics entirely for large graphs
+                    enabled: true, // Always start with physics enabled for initial layout
                     stabilization: {
                         enabled: true,
-                        iterations: isLarge ? 50 : 400,
+                        iterations: isLarge ? 50 : 400, // Fewer iterations for large graphs
                         onlyDynamicEdges: false,
                         fit: true
                     },
                     solver: 'barnesHut',
                     barnesHut: {
-                        gravitationalConstant: -30000,
-                        centralGravity: 0.3,
-                        springLength: 150,
-                        springConstant: 0.04,
-                        damping: 0.2,
-                        avoidOverlap: 0.2
+                        gravitationalConstant: isLarge ? -50000 : -30000,
+                        centralGravity: isLarge ? 0.5 : 0.3,
+                        springLength: isLarge ? 100 : 150,
+                        springConstant: isLarge ? 0.01 : 0.04,
+                        damping: isLarge ? 0.3 : 0.2,
+                        avoidOverlap: isLarge ? 0.1 : 0.2
                     }
                 }
             };
@@ -391,6 +395,11 @@ function loadGraph() {
                         duration: 1000,
                         easingFunction: 'easeInOutQuad'
                     }
+                });
+                // Explicitly ensure zoom is enabled
+                network.moveTo({
+                    scale: network.getScale(),
+                    animation: false
                 });
             }, 500);
         })
@@ -500,12 +509,10 @@ function bindPathInputAutocomplete(inputEl) {
 // Search functionality
 function performSearch(query) {
     if (!query || query.trim() === '') {
-        // Reset to show all nodes
-        nodes.clear();
-        edges.clear();
-        nodes.add(allNodes);
-        edges.add(allEdges);
-        updateStats(allNodes.length, allEdges.length);
+        // Reset search state and apply normal filters
+        searchResultNodes = null;
+        searchResultEdges = null;
+        applyFilters();
         return;
     }
     
@@ -530,29 +537,17 @@ function performSearch(query) {
             // Combine all relevant node IDs
             const relevantNodeIds = new Set([...matchingNodeIds, ...connectedNodeIds]);
             
-            // Filter nodes and edges to show
-            const filteredNodes = allNodes.filter(n => relevantNodeIds.has(n.id));
-            const filteredEdges = allEdges.filter(e => 
+            // Store search results as the base for filtering
+            searchResultNodes = allNodes.filter(n => relevantNodeIds.has(n.id));
+            searchResultEdges = allEdges.filter(e => 
                 relevantNodeIds.has(e.from) && relevantNodeIds.has(e.to)
             );
             
-            nodes.clear();
-            edges.clear();
-            nodes.add(filteredNodes);
-            edges.add(filteredEdges);
+            // Store matching node IDs for highlighting
+            window.searchHighlightNodes = matchingNodeIds;
             
-            updateStats(filteredNodes.length, filteredEdges.length);
-            
-            // Highlight matching nodes
-            data.nodes.forEach(node => {
-                nodes.update({
-                    id: node.id,
-                    color: {
-                        border: '#ffc107',
-                        background: '#fff176'
-                    }
-                });
-            });
+            // Apply filters on search results
+            applyFilters();
             
             // Fit to show filtered results
             setTimeout(() => {
@@ -907,8 +902,16 @@ function changeLayout(layoutType) {
     // For large graphs, disable physics immediately
     const visibleEdges = edges.get();
     if (visibleEdges.length > 500) {
-        network.setOptions({ physics: { enabled: false } });
+        network.setOptions({ 
+            physics: { enabled: false },
+            interaction: {
+                zoomView: true,
+                dragView: true
+            }
+        });
         physicsEnabled = false;
+        // Force redraw to ensure canvas is responsive
+        network.redraw();
     } else {
         physicsEnabled = true;
     }
@@ -941,6 +944,9 @@ function changeLayout(layoutType) {
 // Restore full graph view
 function restoreFullGraph() {
     isPathView = false;
+    searchResultNodes = null;
+    searchResultEdges = null;
+    window.searchHighlightNodes = null;
     filterState = {
         users: [],
         methods: [],
@@ -961,6 +967,12 @@ function restoreFullGraph() {
     document.getElementById('minConnectionsValue').textContent = '0';
     document.getElementById('selectedNodeHopsSlider').value = 0;
     document.getElementById('selectedNodeHopsValue').textContent = 'All';
+    
+    // Clear search input
+    const searchInput = document.getElementById('search');
+    if (searchInput) {
+        searchInput.value = '';
+    }
 
     applyFilters();
     showDefaultInfo();
@@ -1017,8 +1029,12 @@ function onFilterChange() {
 function applyFilters() {
     if (isPathView) return; // Don't apply filters in path view
 
+    // Use search results if search is active, otherwise use all data
+    const baseNodes = searchResultNodes || allNodes;
+    const baseEdges = searchResultEdges || allEdges;
+
     // Filter edges by user/method
-    let filteredEdges = allEdges;
+    let filteredEdges = baseEdges;
     if (filterState.users.length > 0) {
         filteredEdges = filteredEdges.filter(e => filterState.users.includes(e.user));
     }
@@ -1051,7 +1067,7 @@ function applyFilters() {
     });
 
     // Filter nodes by minimum connections
-    let filteredNodes = allNodes.filter(n =>
+    let filteredNodes = baseNodes.filter(n =>
         connectedNodeIds.has(n.id) &&
         (nodeConnectionCount[n.id] || 0) >= filterState.minConnections
     );
@@ -1105,6 +1121,22 @@ function applyFilters() {
         return edgeData;
     });
 
+    // Apply search highlighting if search is active
+    if (window.searchHighlightNodes) {
+        filteredNodes = filteredNodes.map(node => {
+            if (window.searchHighlightNodes.has(node.id)) {
+                return {
+                    ...node,
+                    color: {
+                        border: '#ffc107',
+                        background: '#fff176'
+                    }
+                };
+            }
+            return node;
+        });
+    }
+
     // Update graph
     nodes.clear();
     edges.clear();
@@ -1121,8 +1153,16 @@ function applyFilters() {
     // For large graphs, disable physics immediately
     if (isLargeGraph) {
         if (physicsEnabled) {
-            network.setOptions({ physics: { enabled: false } });
+            network.setOptions({ 
+                physics: { enabled: false },
+                interaction: {
+                    zoomView: true,
+                    dragView: true
+                }
+            });
             physicsEnabled = false;
+            // Force redraw to ensure canvas is responsive
+            network.redraw();
         }
     } else {
         // Re-enable physics for small graphs
@@ -1736,29 +1776,17 @@ function filterGraphBySearchResults(data) {
     // Combine all relevant node IDs
     const relevantNodeIds = new Set([...matchingNodeIds, ...connectedNodeIds]);
     
-    // Filter nodes and edges to show
-    const filteredNodes = allNodes.filter(n => relevantNodeIds.has(n.id));
-    const filteredEdges = allEdges.filter(e => 
+    // Store search results as the base for filtering
+    searchResultNodes = allNodes.filter(n => relevantNodeIds.has(n.id));
+    searchResultEdges = allEdges.filter(e => 
         relevantNodeIds.has(e.from) && relevantNodeIds.has(e.to)
     );
     
-    nodes.clear();
-    edges.clear();
-    nodes.add(filteredNodes);
-    edges.add(filteredEdges);
+    // Store matching node IDs for highlighting
+    window.searchHighlightNodes = matchingNodeIds;
     
-    updateStats(filteredNodes.length, filteredEdges.length);
-    
-    // Highlight matching nodes
-    data.nodes.forEach(node => {
-        nodes.update({
-            id: node.id,
-            color: {
-                border: '#ffc107',
-                background: '#fff176'
-            }
-        });
-    });
+    // Apply filters on search results
+    applyFilters();
     
     // Fit to show filtered results
     setTimeout(() => {
