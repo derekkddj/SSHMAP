@@ -1096,19 +1096,22 @@ function applyFilters() {
     let workingNodes = baseNodes;
     let workingEdges = baseEdges;
 
-    // If hop filtering is active, expand to full graph for hop calculation
+    // If hop filtering is active, expand from selected node by hop layers
     if (hopSourceNodeId !== null && filterState.selectedNodeHops > 0) {
-        // Calculate hops on the FULL graph to allow expansion beyond search results
-        const visibleIds = getNodesWithinHops(hopSourceNodeId, filterState.selectedNodeHops, allEdges);
+        const hopDistances = getHopDistances(hopSourceNodeId, filterState.selectedNodeHops, allEdges);
 
-        // Use all nodes within hop distance from the full graph
-        workingNodes = allNodes.filter(n => visibleIds.has(n.id));
+        // Nodes: everything reachable within max hops
+        workingNodes = allNodes.filter(n => hopDistances.has(n.id));
 
-        // Get all edges between these nodes from the full graph
-        const visibleNodeIds = new Set(workingNodes.map(n => n.id));
-        workingEdges = allEdges.filter(e => 
-            visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to)
-        );
+        // Edges: only between consecutive hop layers (prevents dense edge explosion)
+        workingEdges = allEdges.filter(e => {
+            if (!hopDistances.has(e.from) || !hopDistances.has(e.to)) {
+                return false;
+            }
+            const fromDist = hopDistances.get(e.from);
+            const toDist = hopDistances.get(e.to);
+            return Math.abs(fromDist - toDist) === 1 && Math.min(fromDist, toDist) < filterState.selectedNodeHops;
+        });
     }
 
     // Filter edges by user/method
@@ -1271,9 +1274,9 @@ function applyFilters() {
     }
 }
 
-function getNodesWithinHops(startNodeId, maxHops, edgeList) {
+function getHopDistances(startNodeId, maxHops, edgeList) {
     if (maxHops <= 0) {
-        return new Set(allNodes.map(n => n.id));
+        return new Map([[startNodeId, 0]]);
     }
 
     const adjacency = new Map();
@@ -1285,10 +1288,10 @@ function getNodesWithinHops(startNodeId, maxHops, edgeList) {
     });
 
     if (!adjacency.has(startNodeId)) {
-        return new Set([startNodeId]);
+        return new Map([[startNodeId, 0]]);
     }
 
-    const visited = new Set([startNodeId]);
+    const distances = new Map([[startNodeId, 0]]);
     const queue = [{ id: startNodeId, depth: 0 }];
 
     while (queue.length > 0) {
@@ -1299,14 +1302,14 @@ function getNodesWithinHops(startNodeId, maxHops, edgeList) {
 
         const neighbors = adjacency.get(current.id) || new Set();
         neighbors.forEach(neighborId => {
-            if (!visited.has(neighborId)) {
-                visited.add(neighborId);
+            if (!distances.has(neighborId)) {
+                distances.set(neighborId, current.depth + 1);
                 queue.push({ id: neighborId, depth: current.depth + 1 });
             }
         });
     }
 
-    return visited;
+    return distances;
 }
 
 // Toggle filter panel
