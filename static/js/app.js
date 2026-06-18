@@ -1081,6 +1081,13 @@ function onFilterChange() {
 function applyFilters() {
     if (isPathView) return; // Don't apply filters in path view
 
+    // Keep a stable hop anchor even if vis temporarily loses selection during redraw
+    let hopSourceNodeId = selectedNodeId;
+    if (hopSourceNodeId === null && filterState.selectedNodeHops > 0 && window.searchHighlightNodes && window.searchHighlightNodes.size === 1) {
+        hopSourceNodeId = Array.from(window.searchHighlightNodes)[0];
+        selectedNodeId = hopSourceNodeId;
+    }
+
     // Use search results if search is active, otherwise use all data
     const baseNodes = searchResultNodes || allNodes;
     const baseEdges = searchResultEdges || allEdges;
@@ -1090,9 +1097,9 @@ function applyFilters() {
     let workingEdges = baseEdges;
 
     // If hop filtering is active, expand to full graph for hop calculation
-    if (selectedNodeId !== null && filterState.selectedNodeHops > 0) {
+    if (hopSourceNodeId !== null && filterState.selectedNodeHops > 0) {
         // Calculate hops on the FULL graph to allow expansion beyond search results
-        const visibleIds = getNodesWithinHops(selectedNodeId, filterState.selectedNodeHops, allEdges);
+        const visibleIds = getNodesWithinHops(hopSourceNodeId, filterState.selectedNodeHops, allEdges);
 
         // Use all nodes within hop distance from the full graph
         workingNodes = allNodes.filter(n => visibleIds.has(n.id));
@@ -1115,7 +1122,7 @@ function applyFilters() {
 
     // Limit edges by recency (most recent first) - skip if hop filtering is active with a selected node
     const edgesBeforeLimit = filteredEdges.length;
-    const isHopFilterActive = selectedNodeId !== null && filterState.selectedNodeHops > 0;
+    const isHopFilterActive = hopSourceNodeId !== null && filterState.selectedNodeHops > 0;
     if (filterState.maxEdges > 0 && filteredEdges.length > filterState.maxEdges && !isHopFilterActive) {
         filteredEdges = filteredEdges
             .slice()
@@ -1210,8 +1217,8 @@ function applyFilters() {
         nodes.add(filteredNodes);
         edges.add(filteredEdges);
 
-        if (selectedNodeId !== null && filteredNodes.some(n => n.id === selectedNodeId)) {
-            network.selectNodes([selectedNodeId]);
+        if (hopSourceNodeId !== null && filteredNodes.some(n => n.id === hopSourceNodeId)) {
+            network.selectNodes([hopSourceNodeId]);
         }
     } finally {
         isProgrammaticGraphUpdate = false;
@@ -1252,14 +1259,16 @@ function applyFilters() {
     // Update physics button state
     updatePhysicsButton();
 
-    setTimeout(() => {
-        network.fit({
-            animation: {
-                duration: 500,
-                easingFunction: 'easeInOutQuad'
-            }
-        });
-    }, 100);
+    if (hopSourceNodeId === null) {
+        setTimeout(() => {
+            network.fit({
+                animation: {
+                    duration: 500,
+                    easingFunction: 'easeInOutQuad'
+                }
+            });
+        }, 100);
+    }
 }
 
 function getNodesWithinHops(startNodeId, maxHops, edgeList) {
