@@ -24,6 +24,7 @@ let physicsEnabled = true;
 let physicsManualOverride = null; // null = auto, true = force on, false = force off
 let searchResultNodes = null;
 let searchResultEdges = null;
+let isProgrammaticGraphUpdate = false;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -77,6 +78,9 @@ function bindNetworkEvents(container) {
     });
 
     network.on('deselectNode', function() {
+        if (isProgrammaticGraphUpdate) {
+            return;
+        }
         const hadSelection = selectedNodeId !== null;
         selectedNodeId = null;
         if (filterState.selectedNodeHops > 0 && hadSelection) {
@@ -1077,46 +1081,28 @@ function onFilterChange() {
 function applyFilters() {
     if (isPathView) return; // Don't apply filters in path view
 
-    console.log("=== applyFilters DEBUG ===");
-    console.log("selectedNodeId:", selectedNodeId);
-    console.log("filterState.selectedNodeHops:", filterState.selectedNodeHops);
-    console.log("allNodes.length:", allNodes.length);
-    console.log("allEdges.length:", allEdges.length);
-    console.log("searchResultNodes:", searchResultNodes ? searchResultNodes.length : null);
-    console.log("searchResultEdges:", searchResultEdges ? searchResultEdges.length : null);
-
     // Use search results if search is active, otherwise use all data
     const baseNodes = searchResultNodes || allNodes;
     const baseEdges = searchResultEdges || allEdges;
-    
-    console.log("baseNodes.length:", baseNodes.length);
-    console.log("baseEdges.length:", baseEdges.length);
-    
+
     // Determine which nodes and edges to work with based on hop filtering
     let workingNodes = baseNodes;
     let workingEdges = baseEdges;
-    
+
     // If hop filtering is active, expand to full graph for hop calculation
     if (selectedNodeId !== null && filterState.selectedNodeHops > 0) {
-        console.log(">>> HOP FILTERING ACTIVE <<<");
         // Calculate hops on the FULL graph to allow expansion beyond search results
         const visibleIds = getNodesWithinHops(selectedNodeId, filterState.selectedNodeHops, allEdges);
-        console.log("visibleIds.size:", visibleIds.size);
-        
+
         // Use all nodes within hop distance from the full graph
         workingNodes = allNodes.filter(n => visibleIds.has(n.id));
-        console.log("workingNodes after hop filter:", workingNodes.length);
-        
+
         // Get all edges between these nodes from the full graph
         const visibleNodeIds = new Set(workingNodes.map(n => n.id));
         workingEdges = allEdges.filter(e => 
             visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to)
         );
-        console.log("workingEdges after hop filter:", workingEdges.length);
     }
-    
-    console.log("workingNodes.length:", workingNodes.length);
-    console.log("workingEdges.length:", workingEdges.length);
 
     // Filter edges by user/method
     let filteredEdges = workingEdges;
@@ -1187,10 +1173,6 @@ function applyFilters() {
     filteredEdges = filteredEdges.filter(e =>
         finalNodeIds.has(e.from) && finalNodeIds.has(e.to)
     );
-    
-    console.log("FINAL filteredNodes.length:", filteredNodes.length);
-    console.log("FINAL filteredEdges.length:", filteredEdges.length);
-    console.log("=== applyFilters END ===");
 
     // Add labels only for smaller graphs (performance)
     filteredEdges = filteredEdges.map(edge => {
@@ -1221,13 +1203,18 @@ function applyFilters() {
     }
 
     // Update graph
-    nodes.clear();
-    edges.clear();
-    nodes.add(filteredNodes);
-    edges.add(filteredEdges);
+    isProgrammaticGraphUpdate = true;
+    try {
+        nodes.clear();
+        edges.clear();
+        nodes.add(filteredNodes);
+        edges.add(filteredEdges);
 
-    if (selectedNodeId !== null && filteredNodes.some(n => n.id === selectedNodeId)) {
-        network.selectNodes([selectedNodeId]);
+        if (selectedNodeId !== null && filteredNodes.some(n => n.id === selectedNodeId)) {
+            network.selectNodes([selectedNodeId]);
+        }
+    } finally {
+        isProgrammaticGraphUpdate = false;
     }
 
     const totalAvailable = edgesBeforeLimit;
