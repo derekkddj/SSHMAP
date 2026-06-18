@@ -1081,11 +1081,27 @@ function applyFilters() {
     const baseNodes = searchResultNodes || allNodes;
     const baseEdges = searchResultEdges || allEdges;
     
-    // For hop calculations, always use the full graph (allEdges) to allow proper expansion
-    const hopCalculationEdges = allEdges;
+    // Determine which nodes and edges to work with based on hop filtering
+    let workingNodes = baseNodes;
+    let workingEdges = baseEdges;
+    
+    // If hop filtering is active, expand to full graph for hop calculation
+    if (selectedNodeId !== null && filterState.selectedNodeHops > 0) {
+        // Calculate hops on the FULL graph to allow expansion beyond search results
+        const visibleIds = getNodesWithinHops(selectedNodeId, filterState.selectedNodeHops, allEdges);
+        
+        // Use all nodes within hop distance from the full graph
+        workingNodes = allNodes.filter(n => visibleIds.has(n.id));
+        
+        // Get all edges between these nodes from the full graph
+        const visibleNodeIds = new Set(workingNodes.map(n => n.id));
+        workingEdges = allEdges.filter(e => 
+            visibleNodeIds.has(e.from) && visibleNodeIds.has(e.to)
+        );
+    }
 
     // Filter edges by user/method
-    let filteredEdges = baseEdges;
+    let filteredEdges = workingEdges;
     if (filterState.users.length > 0) {
         filteredEdges = filteredEdges.filter(e => filterState.users.includes(e.user));
     }
@@ -1093,9 +1109,9 @@ function applyFilters() {
         filteredEdges = filteredEdges.filter(e => filterState.methods.includes(e.method));
     }
 
-    // Limit edges by recency (most recent first)
+    // Limit edges by recency (most recent first) - only if NOT in hop mode
     const edgesBeforeLimit = filteredEdges.length;
-    if (filterState.maxEdges > 0 && filteredEdges.length > filterState.maxEdges) {
+    if (filterState.maxEdges > 0 && filteredEdges.length > filterState.maxEdges && filterState.selectedNodeHops === 0) {
         filteredEdges = filteredEdges
             .slice()
             .sort((a, b) => (b.time || 0) - (a.time || 0))
@@ -1118,7 +1134,7 @@ function applyFilters() {
     });
 
     // Filter nodes by minimum connections
-    let filteredNodes = baseNodes.filter(n =>
+    let filteredNodes = workingNodes.filter(n =>
         connectedNodeIds.has(n.id) &&
         (nodeConnectionCount[n.id] || 0) >= filterState.minConnections
     );
@@ -1147,44 +1163,11 @@ function applyFilters() {
         };
     });
 
-    // Apply hop filtering BEFORE filtering edges to nodes
-    // This ensures hop distance is calculated on the full graph structure
-    if (selectedNodeId !== null && filterState.selectedNodeHops > 0) {
-        // Calculate hops on the FULL graph to allow proper expansion beyond search results
-        const visibleIds = getNodesWithinHops(selectedNodeId, filterState.selectedNodeHops, hopCalculationEdges);
-        
-        // Filter to include only visible nodes (that also passed other filters)
-        filteredNodes = filteredNodes.filter(n => visibleIds.has(n.id));
-        
-        // Also include nodes from the full graph that are within hops, even if not in search results
-        const allNodesMap = new Map(allNodes.map(n => [n.id, n]));
-        visibleIds.forEach(nodeId => {
-            if (!filteredNodes.find(n => n.id === nodeId) && allNodesMap.has(nodeId)) {
-                filteredNodes.push(allNodesMap.get(nodeId));
-            }
-        });
-        
-        // When hop filtering is active, we need to include ALL edges between visible nodes
-        // from the full graph, not just search results
-        const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
-        filteredEdges = hopCalculationEdges.filter(e =>
-            filteredNodeIds.has(e.from) && filteredNodeIds.has(e.to)
-        );
-        
-        // Apply user/method filters to the hop-expanded edges
-        if (filterState.users.length > 0) {
-            filteredEdges = filteredEdges.filter(e => filterState.users.includes(e.user));
-        }
-        if (filterState.methods.length > 0) {
-            filteredEdges = filteredEdges.filter(e => filterState.methods.includes(e.method));
-        }
-    } else {
-        // No hop filtering, just filter edges to nodes
-        const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
-        filteredEdges = filteredEdges.filter(e =>
-            filteredNodeIds.has(e.from) && filteredNodeIds.has(e.to)
-        );
-    }
+    // Final edge filtering to match final node set
+    const finalNodeIds = new Set(filteredNodes.map(n => n.id));
+    filteredEdges = filteredEdges.filter(e =>
+        finalNodeIds.has(e.from) && finalNodeIds.has(e.to)
+    );
 
     // Add labels only for smaller graphs (performance)
     filteredEdges = filteredEdges.map(edge => {
