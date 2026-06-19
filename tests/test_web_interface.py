@@ -48,6 +48,7 @@ def test_routes_registered():
         '/api/path',
         '/api/node/<int:node_id>',
         '/api/edge/<int:edge_id>',
+        '/api/edge/<int:edge_id>/disabled',
         '/api/hosts'
     ]
 

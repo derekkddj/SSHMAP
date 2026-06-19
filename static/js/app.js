@@ -103,9 +103,9 @@ function bindNetworkEvents(container) {
         const nodeId = network.getNodeAt(params.pointer.DOM);
         const edgeId = network.getEdgeAt(params.pointer.DOM);
 
-        if (nodeId) {
+        if (nodeId !== null && nodeId !== undefined) {
             showContextMenu(params.event, nodeId, null);
-        } else if (edgeId) {
+        } else if (edgeId !== null && edgeId !== undefined) {
             showContextMenu(params.event, null, edgeId);
         } else {
             hideContextMenu();
@@ -643,7 +643,8 @@ function displayNodeDetails(data) {
                     <strong>→ ${escapeHtml(conn.target)}</strong><br>
                     User: ${escapeHtml(conn.user)}<br>
                     IP: ${escapeHtml(conn.ip)}:${conn.port}<br>
-                    Method: ${escapeHtml(conn.method)}
+                    Method: ${escapeHtml(conn.method)}<br>
+                    Status: ${conn.disabled ? '<span style="color:#ef4444;">Disabled</span>' : 'Enabled'}
                 </div>
             `;
         });
@@ -667,7 +668,8 @@ function displayNodeDetails(data) {
                     <strong>← ${escapeHtml(conn.source)}</strong><br>
                     User: ${escapeHtml(conn.user)}<br>
                     IP: ${escapeHtml(conn.ip)}:${conn.port}<br>
-                    Method: ${escapeHtml(conn.method)}
+                    Method: ${escapeHtml(conn.method)}<br>
+                    Status: ${conn.disabled ? '<span style="color:#ef4444;">Disabled</span>' : 'Enabled'}
                 </div>
             `;
         });
@@ -734,6 +736,10 @@ function displayEdgeDetails(data) {
             <div class="info-item">
                 <strong>Last Used:</strong>
                 <span>${timestamp}</span>
+            </div>
+            <div class="info-item">
+                <strong>Status:</strong>
+                <span style="color: ${data.disabled ? '#ef4444' : '#22c55e'};">${data.disabled ? 'Disabled' : 'Enabled'}</span>
             </div>
         </div>
     `;
@@ -1191,10 +1197,15 @@ function applyFilters() {
     filteredEdges = filteredEdges.map(edge => {
         const edgeData = {
             ...edge,
-            title: `${edge.user}@${edge.ip}:${edge.port}\nMethod: ${edge.method}\nCreds: ${edge.creds}`
+            title: `${edge.user}@${edge.ip}:${edge.port}\nMethod: ${edge.method}\nCreds: ${edge.creds}\nStatus: ${edge.disabled ? 'Disabled' : 'Enabled'}`
         };
+        if (edge.disabled) {
+            edgeData.dashes = true;
+            edgeData.color = { color: '#ef4444', highlight: '#f97316', hover: '#f97316' };
+            edgeData.width = 3;
+        }
         if (!isLargeGraph) {
-            edgeData.label = edge.user;
+            edgeData.label = edge.disabled ? `${edge.user} (disabled)` : edge.user;
         }
         return edgeData;
     });
@@ -2015,8 +2026,9 @@ function showContextMenu(event, nodeId, edgeId) {
     event.preventDefault();
     
     const menu = document.getElementById('contextMenu');
-    contextMenuTarget = nodeId || edgeId;
-    contextMenuType = nodeId ? 'node' : 'edge';
+    const hasNode = nodeId !== null && nodeId !== undefined;
+    contextMenuTarget = hasNode ? nodeId : edgeId;
+    contextMenuType = hasNode ? 'node' : 'edge';
     
     // Build menu content based on type
     let menuHTML = '';
@@ -2041,9 +2053,14 @@ function showContextMenu(event, nodeId, edgeId) {
         `;
     } else {
         // Edge context menu
+        const edge = allEdges.find(e => e.id === edgeId);
+        const disabled = edge && edge.disabled;
         menuHTML = `
             <div class="context-menu-item" onclick="contextMenuAction('focus')">
                 <span>🎯</span> Focus on this
+            </div>
+            <div class="context-menu-item" onclick="contextMenuAction('toggle-disabled')">
+                <span>${disabled ? '✅' : '🚫'}</span> ${disabled ? 'Enable edge' : 'Disable edge'}
             </div>
             <div class="context-menu-divider"></div>
             <div class="context-menu-item danger" onclick="contextMenuAction('delete')">
@@ -2072,7 +2089,7 @@ function contextMenuAction(action) {
     
     hideContextMenu();
     
-    if (!target) {
+    if (target === null || target === undefined) {
         console.log('No context menu target');
         return;
     }
@@ -2137,6 +2154,12 @@ function contextMenuAction(action) {
                 deleteFromDatabase(type, target);
             }
             break;
+
+        case 'toggle-disabled':
+            if (type === 'edge') {
+                toggleEdgeDisabled(target);
+            }
+            break;
             
         default:
             console.log('Unknown action:', action);
@@ -2162,6 +2185,35 @@ function deleteFromDatabase(type, id) {
     })
     .catch(error => {
         alert(`Failed to delete ${type}: ${error.message}`);
+    });
+}
+
+function toggleEdgeDisabled(edgeId) {
+    const edge = allEdges.find(e => e.id === edgeId);
+    const disabled = !(edge && edge.disabled);
+    const action = disabled ? 'disable' : 'enable';
+
+    if (!confirm(`Are you sure you want to ${action} this edge?`)) {
+        return;
+    }
+
+    fetch(`/api/edge/${edgeId}/disabled`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ disabled })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            throw new Error(data.error || `Failed to ${action} edge`);
+        }
+        loadGraph();
+        loadEdgeDetails(edgeId);
+    })
+    .catch(error => {
+        alert(`Failed to ${action} edge: ${error.message}`);
     });
 }
 

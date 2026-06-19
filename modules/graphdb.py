@@ -172,6 +172,7 @@ class GraphDB:
                 """
                 MATCH (start:Host {hostname: $start}), (end:Host {hostname: $end})
                 MATCH path = shortestPath((start)-[rels:SSH_ACCESS*..15]->(end))
+                WHERE all(r IN rels WHERE coalesce(r.disabled, false) = false)
                 RETURN nodes(path) AS nodes, rels AS relationships
             """,
                 start=start_hostname,
@@ -194,6 +195,7 @@ class GraphDB:
                         "creds": rel.get("creds"),
                         "ip": rel.get("ip"),
                         "port": rel.get("port"),
+                        "disabled": rel.get("disabled", False),
                     }
                     full_path.append((src, meta, dst))
 
@@ -219,6 +221,7 @@ class GraphDB:
             maxLevel: $max_depth,
             filterStartNode: true
         }) YIELD path
+        WHERE all(r IN relationships(path) WHERE coalesce(r.disabled, false) = false)
         WITH path, reduce(
             inv_weight = 0, r IN relationships(path) |
             inv_weight + (9999999999999 - coalesce(r.time, 0))
@@ -259,6 +262,7 @@ class GraphDB:
                         "ip": rel.get("ip"),
                         "port": rel.get("port"),
                         "time": rel.get("time"),
+                        "disabled": rel.get("disabled", False),
                     }
                     path_segments.append((src, meta, dst))
                 all_paths.append(path_segments)
@@ -274,6 +278,7 @@ class GraphDB:
             result = session.run(
                 f"""
                 MATCH path = (start:Host {{hostname: $start}})-[:SSH_ACCESS*1..{max_depth}]->(end:Host {{hostname: $end}})
+                WHERE all(r IN relationships(path) WHERE coalesce(r.disabled, false) = false)
                 RETURN path
             """,
                 start=start_hostname,
@@ -362,7 +367,7 @@ class GraphDB:
                 """
                 MATCH (src:Host {hostname: $from_hostname}), (dst:Host {hostname: $to_hostname})
                 MERGE (src)-[r:SSH_ACCESS {user: $user, method: $method, creds: $creds, ip: $ip, port: $port}]->(dst)
-                ON CREATE SET r.time = $currentmilis, r.first_seen = $currentmilis
+                ON CREATE SET r.time = $currentmilis, r.first_seen = $currentmilis, r.disabled = false
                 ON MATCH SET r.time = $currentmilis
                 """,
                 from_hostname=from_hostname,

@@ -183,7 +183,8 @@ def _validate_import_payload(payload):
             'creds': str(edge.get('creds', '')),
             'ip': str(edge.get('ip', '')),
             'port': normalized_port,
-            'time': _normalize_import_time(edge.get('time'))
+            'time': _normalize_import_time(edge.get('time')),
+            'disabled': _parse_import_flag(edge.get('disabled', False))
         })
 
     return normalized_nodes, normalized_edges
@@ -226,7 +227,8 @@ def get_graph():
                 RETURN id(a) AS from_id, id(b) AS to_id, id(r) AS edge_id,
                        a.hostname AS from_hostname, b.hostname AS to_hostname,
                        r.user AS user, r.method AS method, r.creds AS creds,
-                       r.ip AS ip, r.port AS port, r.time AS time
+                       r.ip AS ip, r.port AS port, r.time AS time,
+                       coalesce(r.disabled, false) AS disabled
             """)
 
             for record in result:
@@ -253,6 +255,7 @@ def get_graph():
                         'ip': ip,
                         'port': record['port'],
                         'time': record['time'],
+                        'disabled': record['disabled'],
                         'title': f"{user}@{ip}:{record['port']}<br>Method: {method}",
                         'label': f"{user}@{ip}"
                     })
@@ -292,7 +295,8 @@ def export_graph():
                        r.creds AS creds,
                        r.ip AS ip,
                        r.port AS port,
-                       r.time AS time
+                       r.time AS time,
+                       coalesce(r.disabled, false) AS disabled
             """)
 
             for record in result:
@@ -311,7 +315,8 @@ def export_graph():
                     'creds': record['creds'],
                     'ip': record['ip'],
                     'port': record['port'],
-                    'time': time_value
+                    'time': time_value,
+                    'disabled': record['disabled']
                 })
 
         return jsonify({
@@ -362,7 +367,8 @@ def import_graph():
                         ip: edge.ip,
                         port: edge.port
                     }]->(dst)
-                    SET r.time = edge.time
+                    SET r.time = edge.time,
+                        r.disabled = coalesce(edge.disabled, false)
                     """,
                     edges=edges,
                 )
@@ -418,7 +424,8 @@ def search():
                 RETURN id(a) AS from_id, id(b) AS to_id, id(r) AS edge_id,
                        a.hostname AS from_hostname, b.hostname AS to_hostname,
                        r.user AS user, r.method AS method, r.creds AS creds,
-                       r.ip AS ip, r.port AS port
+                       r.ip AS ip, r.port AS port,
+                       coalesce(r.disabled, false) AS disabled
             """, search_query=query)
 
             for record in result:
@@ -432,7 +439,8 @@ def search():
                     'method': record['method'],
                     'creds': record['creds'],
                     'ip': record['ip'],
-                    'port': record['port']
+                    'port': record['port'],
+                    'disabled': record['disabled']
                 })
 
         return jsonify({
@@ -465,7 +473,8 @@ def get_node(node_id):
                 MATCH (h:Host)-[r:SSH_ACCESS]->(target:Host)
                 WHERE id(h) = $node_id
                 RETURN id(r) AS edge_id, target.hostname AS target, r.user AS user,
-                       r.method AS method, r.ip AS ip, r.port AS port
+                       r.method AS method, r.ip AS ip, r.port AS port,
+                       coalesce(r.disabled, false) AS disabled
             """, node_id=node_id)
 
             # Get incoming connections
@@ -473,7 +482,8 @@ def get_node(node_id):
                 MATCH (source:Host)-[r:SSH_ACCESS]->(h:Host)
                 WHERE id(h) = $node_id
                 RETURN id(r) AS edge_id, source.hostname AS source, r.user AS user,
-                       r.method AS method, r.ip AS ip, r.port AS port
+                       r.method AS method, r.ip AS ip, r.port AS port,
+                       coalesce(r.disabled, false) AS disabled
             """, node_id=node_id)
 
             return jsonify({
@@ -499,7 +509,8 @@ def get_edge(edge_id):
                 WHERE id(r) = $edge_id
                 RETURN id(r) AS id, a.hostname AS from_hostname, b.hostname AS to_hostname,
                        r.user AS user, r.method AS method, r.creds AS creds,
-                       r.ip AS ip, r.port AS port, r.time AS time
+                       r.ip AS ip, r.port AS port, r.time AS time,
+                       coalesce(r.disabled, false) AS disabled
             """, edge_id=edge_id)
 
             record = result.single()
@@ -509,6 +520,36 @@ def get_edge(edge_id):
             return jsonify(dict(record))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/edge/<int:edge_id>/disabled', methods=['PATCH'])
+def set_edge_disabled(edge_id):
+    """Enable or disable an SSH_ACCESS relationship without deleting it."""
+    try:
+        data = request.get_json(silent=True) or {}
+        disabled = _parse_import_flag(data.get('disabled', True))
+
+        with db.driver.session() as session:
+            result = session.run("""
+                MATCH ()-[r:SSH_ACCESS]->()
+                WHERE id(r) = $edge_id
+                SET r.disabled = $disabled
+                RETURN id(r) AS id, coalesce(r.disabled, false) AS disabled
+            """, edge_id=edge_id, disabled=disabled)
+
+            record = result.single()
+            if not record:
+                return jsonify({'success': False, 'error': 'Edge not found'}), 404
+
+            state = 'disabled' if record['disabled'] else 'enabled'
+            return jsonify({
+                'success': True,
+                'edge_id': record['id'],
+                'disabled': record['disabled'],
+                'message': f'Edge {state} successfully'
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/path', methods=['POST'])
@@ -553,7 +594,8 @@ def find_path():
                     'method': meta['method'],
                     'creds': meta['creds'],
                     'ip': meta['ip'],
-                    'port': meta['port']
+                    'port': meta['port'],
+                    'disabled': meta.get('disabled', False)
                 })
             formatted_paths.append(formatted_path)
 
