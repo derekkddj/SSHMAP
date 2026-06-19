@@ -1222,10 +1222,6 @@ function applyFilters() {
         edges.clear();
         nodes.add(filteredNodes);
         edges.add(filteredEdges);
-
-        if (hopSourceNodeId !== null && filteredNodes.some(n => n.id === hopSourceNodeId)) {
-            network.selectNodes([hopSourceNodeId]);
-        }
     } finally {
         isProgrammaticGraphUpdate = false;
     }
