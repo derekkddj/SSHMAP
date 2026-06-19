@@ -59,6 +59,9 @@ function bindNetworkEvents(container) {
 
     // Event listeners for node/edge selection
     network.on('selectNode', function(params) {
+        if (isProgrammaticGraphUpdate) {
+            return;
+        }
         if (params.nodes.length > 0) {
             const nodeId = params.nodes[0];
             const previousSelectedNode = selectedNodeId;
