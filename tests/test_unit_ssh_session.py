@@ -26,6 +26,35 @@ class TestSSHSession:
         assert exit_status == 1
         session.connection.run.assert_called_once_with("ls")
 
+    async def test_is_connected_uses_transport_state(self):
+        session = SSHSession("127.0.0.1", "user")
+        session.connection = MagicMock()
+        session.connection.is_closed.return_value = False
+        session.connection.create_process = AsyncMock()
+
+        assert await session.is_connected() is True
+        session.connection.create_process.assert_not_called()
+
+    async def test_is_connected_clears_closed_transport(self):
+        session = SSHSession("127.0.0.1", "user")
+        session.connection = MagicMock()
+        session.connection.is_closed.return_value = True
+
+        assert await session.is_connected() is False
+        assert session.connection is None
+
+    async def test_is_connected_fallback_errors_are_debug_only(self):
+        session = SSHSession("127.0.0.1", "user")
+        session.connection = MagicMock()
+        del session.connection.is_closed
+        session.connection.create_process = AsyncMock(side_effect=RuntimeError("fork failed"))
+        session.sshmap_logger.debug = MagicMock()
+        session.sshmap_logger.error = MagicMock()
+
+        assert await session.is_connected() is False
+        session.sshmap_logger.debug.assert_called_once()
+        session.sshmap_logger.error.assert_not_called()
+
     @patch('modules.SSHSession.sys')
     @patch('modules.SSHSession.os')
     @patch('modules.SSHSession.termios')

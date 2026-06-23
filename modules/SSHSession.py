@@ -307,21 +307,31 @@ class SSHSession:
     async def is_connected(self) -> bool:
         if self.connection is None:
             return False
+
+        is_closed = getattr(self.connection, "is_closed", None)
+        if callable(is_closed) and is_closed():
+            self.connection = None
+            return False
         
         # First check if jumper chain is healthy (recursive validation)
         if self.jumper and not await self.jumper.is_connected():
-            self.sshmap_logger.warning(
+            self.sshmap_logger.debug(
                 f"Jumper connection broken for {self.host}:{self.port}"
             )
             return False
         
-        # Then check our own connection
+        # Prefer the transport state over opening a remote process. Opening "true"
+        # on busy jump hosts can itself fail with fork/channel errors and create noise.
+        if callable(is_closed):
+            return True
+
+        # Fall back for connection-like test doubles which do not expose is_closed().
         try:
             process = await self.connection.create_process("true")
             await process.wait()
             return process.exit_status == 0
         except Exception as e:
-            self.sshmap_logger.error(
+            self.sshmap_logger.debug(
                 f"Error checking connection for {self.host}:{self.port} - {type(e).__name__}: {e}"
             )
             return False
