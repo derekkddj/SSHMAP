@@ -98,12 +98,18 @@ class SSHSession:
         if self._on_broken:
             await self._on_broken(self)
 
-    async def _run_command(self, command, **kwargs):
+    async def _run_command(self, command, timeout=None, **kwargs):
         if self.connection is None:
             raise ValueError("SSH connection is not established.")
 
         try:
-            return await self.connection.run(command, **kwargs)
+            command_task = self.connection.run(command, **kwargs)
+            if timeout is not None:
+                return await asyncio.wait_for(command_task, timeout=timeout)
+            return await command_task
+        except asyncio.TimeoutError as e:
+            await self._mark_broken(e)
+            raise
         except Exception as e:
             if self._is_connection_failure(e):
                 await self._mark_broken(e)
@@ -218,6 +224,11 @@ class SSHSession:
                 await asyncio.sleep(0.15)
 
             self.remote_hostname = await get_remote_hostname(self)
+            if self._broken or self.connection is None:
+                self.sshmap_logger.debug(
+                    f"Connection to {self.host}:{self.port} broke while getting hostname"
+                )
+                return False
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
             self.sshmap_logger.success(
@@ -268,17 +279,17 @@ class SSHSession:
     def __str__(self):
         return f"SSHSession({self.user}@{self.remote_hostname}:{self.port})"
 
-    async def exec_command(self, command):
+    async def exec_command(self, command, timeout=None):
         """Execute command on remote machine."""
-        result = await self._run_command(command)
+        result = await self._run_command(command, timeout=timeout)
         return result.stdout
 
-    async def exec_command_with_stderr(self, command):
+    async def exec_command_with_stderr(self, command, timeout=None):
         """Execute command on remote machine."""
-        result = await self._run_command(command)
+        result = await self._run_command(command, timeout=timeout)
         return result.stdout, result.stderr, result.exit_status
 
-    async def exec_command_with_pty(self, command: str) -> str:
+    async def exec_command_with_pty(self, command: str, timeout=None) -> str:
         """Execute command on the remote machine with a pseudo-TTY allocated.
 
         Use this when the remote host's /etc/sudoers has 'Defaults requiretty',
@@ -286,7 +297,7 @@ class SSHSession:
         session.  A PTY merges stdout and stderr into stdout and uses \\r\\n
         line endings; both are handled transparently.
         """
-        result = await self._run_command(command, request_pty="force")
+        result = await self._run_command(command, timeout=timeout, request_pty="force")
         output = result.stdout or ""
         # PTY uses \r\n; normalise to \n for consistent downstream parsing
         return output.replace("\r\n", "\n").replace("\r", "\n")

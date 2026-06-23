@@ -1,5 +1,6 @@
 from .SSHSession import SSHSession
 from .logger import sshmap_logger
+from .config import CONFIG
 import asyncio
 
 
@@ -86,7 +87,22 @@ class SSHSessionManager:
                 )
 
                 sshmap_logger.info(f"Connecting to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}...")
-                connected = await session.connect()
+                try:
+                    connected = await asyncio.wait_for(
+                        session.connect(),
+                        timeout=CONFIG["scan_timeout"] * 2,
+                    )
+                except asyncio.TimeoutError:
+                    sshmap_logger.warning(
+                        f"Timeout connecting to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}"
+                    )
+                    try:
+                        await session.close()
+                    except Exception as e:
+                        sshmap_logger.debug(
+                            f"Error closing timed-out session to {dst}: {type(e).__name__}: {e}"
+                        )
+                    return None
                 
                 if not connected:
                     sshmap_logger.warn(f"Failed to connect to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}")

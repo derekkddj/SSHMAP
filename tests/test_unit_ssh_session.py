@@ -71,6 +71,25 @@ class TestSSHSession:
         assert await session.is_connected() is False
         on_broken.assert_awaited_once_with(session)
 
+    async def test_exec_command_timeout_marks_session_broken(self):
+        session = SSHSession("127.0.0.1", "user")
+        session.connection = MagicMock()
+
+        async def slow_run(command):
+            await asyncio.sleep(1)
+
+        session.connection.run = slow_run
+        session.connection.close = MagicMock()
+        session.connection.wait_closed = AsyncMock()
+        on_broken = AsyncMock()
+        session.set_broken_callback(on_broken)
+
+        with pytest.raises(asyncio.TimeoutError):
+            await session.exec_command("hostname", timeout=0.01)
+
+        assert session.connection is None
+        on_broken.assert_awaited_once_with(session)
+
     @patch('modules.SSHSession.sys')
     @patch('modules.SSHSession.os')
     @patch('modules.SSHSession.termios')

@@ -188,7 +188,9 @@ async def get_remote_hostname(ssh_client):
     retries = 3
     for attempt in range(retries):
         try:
-            hostname, err, exit_status = await ssh_client.exec_command_with_stderr("hostname")
+            hostname, err, exit_status = await ssh_client.exec_command_with_stderr(
+                "hostname", timeout=CONFIG["scan_timeout"]
+            )
             # Strip whitespace and validate hostname
             if hostname and hostname.strip():
                 hostname = hostname.strip()
@@ -240,7 +242,7 @@ async def get_remote_ip(ssh_client):
 
     # Try `ip` command first (modern Linux)
     out, err, exit_status = await ssh_client.exec_command_with_stderr(
-        "ip -o -4 addr show | awk '{print $4}'"
+        "ip -o -4 addr show | awk '{print $4}'", timeout=CONFIG["scan_timeout"]
     )
     if exit_status != 0 or err or not out.strip():
         sshmap_logger.debug(
@@ -280,7 +282,9 @@ async def get_remote_ip(ssh_client):
     }'
 done"""
         
-        out, err, exit_status = await ssh_client.exec_command_with_stderr(cmd)
+        out, err, exit_status = await ssh_client.exec_command_with_stderr(
+            cmd, timeout=CONFIG["scan_timeout"]
+        )
         if exit_status != 0 or not out.strip():
             sshmap_logger.debug(
                 f"`netstat -in` + ifconfig command failed or missing (exit_status={exit_status}): {(err or '').strip()}"
@@ -305,7 +309,9 @@ done"""
 
     # Fallback to traditional `ifconfig` if previous methods failed
     if not ip_info:
-        out, err, exit_status = await ssh_client.exec_command_with_stderr("ifconfig")
+        out, err, exit_status = await ssh_client.exec_command_with_stderr(
+            "ifconfig", timeout=CONFIG["scan_timeout"]
+        )
         if exit_status != 0 or not out.strip():
             sshmap_logger.debug(
                 f"`ifconfig` command failed or missing (exit_status={exit_status}): {(err or '').strip()}"
