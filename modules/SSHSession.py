@@ -37,6 +37,8 @@ class SSHSession:
         self.remote_hostname = None  # hostname of the machine were we are connected to
         self.key_objects = key_objects
         self.attempt_id = attempt_id
+        self._broken = False
+        self._on_broken = None
         # Disable asyncssh logging
         logging.getLogger("asyncssh").disabled = True
         self.sshmap_logger = NXCAdapter(
@@ -55,6 +57,57 @@ class SSHSession:
             self.sshmap_logger.debug(f"[{attempt_id}] Using jumper {jumper_info}")
         elif proxy_url:
             self.sshmap_logger.debug(f"[{attempt_id}] Using proxy {proxy_url}")
+
+    def set_broken_callback(self, callback):
+        self._on_broken = callback
+
+    def _is_connection_failure(self, error):
+        return isinstance(
+            error,
+            (
+                asyncssh.ChannelOpenError,
+                asyncssh.ConnectionLost,
+                asyncssh.DisconnectError,
+                asyncssh.ProtocolError,
+                BrokenPipeError,
+                ConnectionError,
+                OSError,
+            ),
+        )
+
+    async def _mark_broken(self, error):
+        if self._broken:
+            return
+
+        self._broken = True
+        self.sshmap_logger.debug(
+            f"Marking session to {self.host}:{self.port} as broken after {type(error).__name__}: {error}"
+        )
+
+        connection = self.connection
+        self.connection = None
+        if connection:
+            try:
+                connection.close()
+                await connection.wait_closed()
+            except Exception as close_error:
+                self.sshmap_logger.debug(
+                    f"Error closing broken session to {self.host}:{self.port}: {type(close_error).__name__}: {close_error}"
+                )
+
+        if self._on_broken:
+            await self._on_broken(self)
+
+    async def _run_command(self, command, **kwargs):
+        if self.connection is None:
+            raise ValueError("SSH connection is not established.")
+
+        try:
+            return await self.connection.run(command, **kwargs)
+        except Exception as e:
+            if self._is_connection_failure(e):
+                await self._mark_broken(e)
+            raise
 
     async def connect(self):
         """Connect to the host using asyncssh."""
@@ -217,18 +270,12 @@ class SSHSession:
 
     async def exec_command(self, command):
         """Execute command on remote machine."""
-        if self.connection is None:
-            raise ValueError("SSH connection is not established.")
-
-        result = await self.connection.run(command)
+        result = await self._run_command(command)
         return result.stdout
 
     async def exec_command_with_stderr(self, command):
         """Execute command on remote machine."""
-        if self.connection is None:
-            raise ValueError("SSH connection is not established.")
-
-        result = await self.connection.run(command)
+        result = await self._run_command(command)
         return result.stdout, result.stderr, result.exit_status
 
     async def exec_command_with_pty(self, command: str) -> str:
@@ -239,9 +286,7 @@ class SSHSession:
         session.  A PTY merges stdout and stderr into stdout and uses \\r\\n
         line endings; both are handled transparently.
         """
-        if self.connection is None:
-            raise ValueError("SSH connection is not established.")
-        result = await self.connection.run(command, request_pty="force")
+        result = await self._run_command(command, request_pty="force")
         output = result.stdout or ""
         # PTY uses \r\n; normalise to \n for consistent downstream parsing
         return output.replace("\r\n", "\n").replace("\r", "\n")
@@ -297,6 +342,7 @@ class SSHSession:
             self.connection.close()
             await self.connection.wait_closed()
             self.sshmap_logger.debug(f"Closed connection to {self.host}:{self.port}")
+            self.connection = None
 
     def get_connection(self):
         return self.connection
@@ -305,7 +351,7 @@ class SSHSession:
         return self.host
 
     async def is_connected(self) -> bool:
-        if self.connection is None:
+        if self._broken or self.connection is None:
             return False
 
         is_closed = getattr(self.connection, "is_closed", None)

@@ -102,6 +102,17 @@ class TestStartFromOption:
             assert all(session is mock_session for session in sessions)
             assert mock_ssh_session_class.call_count == 1
             assert mock_session.connect.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_ssh_session_manager_invalidates_broken_session(self):
+        session_manager = SSHSessionManager(MagicMock(spec=GraphDB), MagicMock(spec=CredentialStore))
+        session = MagicMock()
+        key = ('remote_host', 'root', 'password', 'password123')
+        session_manager._cache_session(key, session)
+
+        await session_manager.invalidate_session(session)
+
+        assert key not in session_manager.sessions
      
     def test_graph_get_host_method_exists(self):
         """Test that GraphDB has the get_host method needed for --start-from"""

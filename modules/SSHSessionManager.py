@@ -18,6 +18,20 @@ class SSHSessionManager:
                 self._session_locks[key] = asyncio.Lock()
             return self._session_locks[key]
 
+    def _cache_session(self, key, session):
+        session.set_broken_callback(self.invalidate_session)
+        self.sessions[key] = session
+
+    async def invalidate_session(self, session):
+        removed_keys = [key for key, cached in self.sessions.items() if cached is session]
+        for key in removed_keys:
+            self.sessions.pop(key, None)
+
+        if removed_keys:
+            sshmap_logger.debug(
+                f"Invalidated broken cached session(s): {removed_keys}"
+            )
+
     async def get_session(self, target_hostname, start_hostname) -> SSHSession:
         """
         Returns a connected session to the target_hostname starting from start_hostname.
@@ -78,7 +92,7 @@ class SSHSessionManager:
                     sshmap_logger.warn(f"Failed to connect to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}")
                     return None
                 
-                self.sessions[key] = session
+                self._cache_session(key, session)
                 previous_session = session
                 last_session = session
 
@@ -103,7 +117,7 @@ class SSHSessionManager:
             return existing
         else:
             sshmap_logger.info(f"[+] Adding new session for {key}")
-            self.sessions[key] = session
+            self._cache_session(key, session)
             return session
 
     async def close_all(self):

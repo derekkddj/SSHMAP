@@ -55,6 +55,22 @@ class TestSSHSession:
         session.sshmap_logger.debug.assert_called_once()
         session.sshmap_logger.error.assert_not_called()
 
+    async def test_exec_command_marks_connection_failure_broken(self):
+        session = SSHSession("127.0.0.1", "user")
+        session.connection = MagicMock()
+        session.connection.run = AsyncMock(side_effect=ConnectionError("closed"))
+        session.connection.close = MagicMock()
+        session.connection.wait_closed = AsyncMock()
+        on_broken = AsyncMock()
+        session.set_broken_callback(on_broken)
+
+        with pytest.raises(ConnectionError):
+            await session.exec_command("hostname")
+
+        assert session.connection is None
+        assert await session.is_connected() is False
+        on_broken.assert_awaited_once_with(session)
+
     @patch('modules.SSHSession.sys')
     @patch('modules.SSHSession.os')
     @patch('modules.SSHSession.termios')
