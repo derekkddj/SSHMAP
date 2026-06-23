@@ -9,6 +9,14 @@ class SSHSessionManager:
         self.credential_store = credential_store
         self.proxy_url = proxy_url
         self.sessions = {}  # hostname -> SSHSession instance
+        self._session_locks = {}
+        self._session_locks_guard = asyncio.Lock()
+
+    async def _get_session_lock(self, key):
+        async with self._session_locks_guard:
+            if key not in self._session_locks:
+                self._session_locks[key] = asyncio.Lock()
+            return self._session_locks[key]
 
     async def get_session(self, target_hostname, start_hostname) -> SSHSession:
         """
@@ -36,34 +44,43 @@ class SSHSessionManager:
                 last_session = existing
                 continue
 
-            key_filename = meta["creds"] if meta["method"] == "keyfile" else None
-            password = meta["creds"] if meta["method"] == "password" else None
+            session_lock = await self._get_session_lock(key)
+            async with session_lock:
+                existing = self.sessions.get(key)
+                if existing and await existing.is_connected():
+                    sshmap_logger.debug(f"Reusing existing session to {dst}")
+                    previous_session = existing
+                    last_session = existing
+                    continue
 
-            key_object = None
-            if meta["method"] == "keyfile":
-                key_object = self.credential_store.get_key_objects()
+                key_filename = meta["creds"] if meta["method"] == "keyfile" else None
+                password = meta["creds"] if meta["method"] == "password" else None
 
-            session = SSHSession(
-                host=meta["ip"],
-                user=meta["user"],
-                password=password,
-                key_filename=key_filename,
-                key_objects=key_object if key_object else None,
-                port=meta["port"],
-                jumper=previous_session,
-                proxy_url=self.proxy_url
-            )
+                key_object = None
+                if meta["method"] == "keyfile":
+                    key_object = self.credential_store.get_key_objects()
 
-            sshmap_logger.info(f"Connecting to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}...")
-            connected = await session.connect()
-            
-            if not connected:
-                sshmap_logger.warn(f"Failed to connect to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}")
-                return None
-            
-            self.sessions[key] = session
-            previous_session = session
-            last_session = session
+                session = SSHSession(
+                    host=meta["ip"],
+                    user=meta["user"],
+                    password=password,
+                    key_filename=key_filename,
+                    key_objects=key_object if key_object else None,
+                    port=meta["port"],
+                    jumper=previous_session,
+                    proxy_url=self.proxy_url
+                )
+
+                sshmap_logger.info(f"Connecting to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}...")
+                connected = await session.connect()
+                
+                if not connected:
+                    sshmap_logger.warn(f"Failed to connect to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}")
+                    return None
+                
+                self.sessions[key] = session
+                previous_session = session
+                last_session = session
 
         return last_session
 
@@ -96,3 +113,4 @@ class SSHSessionManager:
             except Exception as e:
                 sshmap_logger.error(f"[!] Failed to close session: {e}")
         self.sessions.clear()
+        self._session_locks.clear()

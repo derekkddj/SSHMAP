@@ -73,7 +73,36 @@ class TestStartFromOption:
             assert session is not None
             assert mock_ssh_session_class.called
             assert mock_session.connect.called
-    
+
+    @pytest.mark.asyncio
+    async def test_ssh_session_manager_reuses_concurrent_session_creation(self):
+        mock_graph = MagicMock(spec=GraphDB)
+        mock_graph.find_path.return_value = [
+            ('local_host', {
+                'user': 'root',
+                'method': 'password',
+                'creds': 'password123',
+                'ip': '172.19.0.2',
+                'port': 22
+            }, 'remote_host')
+        ]
+        mock_cred_store = MagicMock(spec=CredentialStore)
+        session_manager = SSHSessionManager(mock_graph, mock_cred_store)
+
+        with patch('modules.SSHSessionManager.SSHSession') as mock_ssh_session_class:
+            mock_session = MagicMock()
+            mock_session.connect = AsyncMock(return_value=True)
+            mock_session.is_connected = AsyncMock(return_value=True)
+            mock_ssh_session_class.return_value = mock_session
+
+            sessions = await asyncio.gather(
+                *(session_manager.get_session('remote_host', 'local_host') for _ in range(10))
+            )
+
+            assert all(session is mock_session for session in sessions)
+            assert mock_ssh_session_class.call_count == 1
+            assert mock_session.connect.await_count == 1
+     
     def test_graph_get_host_method_exists(self):
         """Test that GraphDB has the get_host method needed for --start-from"""
         from modules.graphdb import GraphDB
