@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-from modules.bruteforce import try_single_credential, try_all, Result
+from modules.bruteforce import _get_reusable_connections, try_single_credential, try_all, Result
 from modules.credential_store import Credential
 
 
@@ -18,6 +18,69 @@ class TestResult:
         ssh = mock_ssh_session()
         result = Result("user", "password", ssh, "pass")
         assert result.get_ssh_connection() == ssh
+
+
+def test_get_reusable_connections_preserves_enabled_credentials():
+    previous_connections = [
+        {
+            "to": "srp_geiurj",
+            "props": {
+                "ip": "10.57.0.32",
+                "port": 22,
+                "user": "root",
+                "method": "password",
+                "creds": "temporal",
+                "disabled": True,
+            },
+        },
+        {
+            "to": "srp_geiurj",
+            "props": {
+                "ip": "10.57.0.32",
+                "port": 22,
+                "user": "usamid",
+                "method": "password",
+                "creds": "password",
+                "disabled": False,
+            },
+        },
+    ]
+
+    reusable = _get_reusable_connections(previous_connections, "10.57.0.32", 22)
+
+    assert len(reusable) == 1
+    assert ("10.57.0.32", 22, "srp_geiurj", "usamid", "password", "password") in reusable
+
+
+def test_get_reusable_connections_keeps_multiple_enabled_credentials():
+    previous_connections = [
+        {
+            "to": "srp_geiurj",
+            "props": {
+                "ip": "10.57.0.32",
+                "port": 22,
+                "user": "root",
+                "method": "password",
+                "creds": "temporal",
+                "disabled": False,
+            },
+        },
+        {
+            "to": "srp_geiurj",
+            "props": {
+                "ip": "10.57.0.32",
+                "port": 22,
+                "user": "usamid",
+                "method": "password",
+                "creds": "password",
+                "disabled": False,
+            },
+        },
+    ]
+
+    reusable = _get_reusable_connections(previous_connections, "10.57.0.32", 22)
+
+    assert len(reusable) == 2
 
 
 @pytest.mark.asyncio

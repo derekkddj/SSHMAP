@@ -27,6 +27,33 @@ class Result:
         return self.ssh_session
 
 
+def _get_reusable_connections(previous_connections, host, port):
+    reusable_connections = {}
+
+    for conn in previous_connections:
+        props = conn.get('props', {})
+        if props.get('disabled', False):
+            continue
+
+        try:
+            same_port = int(props.get('port')) == int(port)
+        except (TypeError, ValueError):
+            same_port = props.get('port') == port
+
+        if props.get('ip') == host and same_port:
+            key = (
+                host,
+                port,
+                conn['to'],
+                props.get('user'),
+                props.get('method'),
+                props.get('creds'),
+            )
+            reusable_connections[key] = conn
+
+    return reusable_connections
+
+
 async def try_single_credential(
     host, port, credential, jumper=None, credential_store=None, ssh_session_manager=None, proxy_url=None
 ):
@@ -213,12 +240,7 @@ async def try_all(
             )
             previous_connections = []
         
-        for conn in previous_connections:
-            props = conn.get('props', {})
-            if props.get('ip') == host and props.get('port') == port:
-                # Key by unique identifier for this connection
-                key = (host, port, conn['to'])
-                old_connections[key] = conn
+        old_connections = _get_reusable_connections(previous_connections, host, port)
         
         if old_connections:
             sshmap_logger.info(
