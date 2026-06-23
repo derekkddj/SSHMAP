@@ -75,6 +75,15 @@ class SSHSession:
             ),
         )
 
+    def _format_error(self, error, max_len=240):
+        if type(error).__name__ == "KeyExchangeFailed":
+            return "No matching key exchange algorithm"
+
+        message = str(error).replace("\n", " ").strip()
+        if len(message) > max_len:
+            return message[:max_len].rstrip() + "..."
+        return message
+
     async def _mark_broken(self, error):
         if self._broken:
             return
@@ -257,7 +266,7 @@ class SSHSession:
             cred_display = self.password if self.password else keyfile_display
             jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
             self.sshmap_logger.warning(
-                f"{attempt_prefix}{self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - ConnectionLost: {e}"
+                f"{attempt_prefix}{self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - ConnectionLost: {self._format_error(e)}"
             )
             raise
         except Exception as e:
@@ -265,7 +274,7 @@ class SSHSession:
             cred_display = self.password if self.password else keyfile_display
             jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
             self.sshmap_logger.warning(
-                f"{attempt_prefix}{self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - {type(e).__name__}: {e}"
+                f"{attempt_prefix}{self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - {type(e).__name__}: {self._format_error(e)}"
             )
             self.connection = None
             return False
