@@ -8,7 +8,7 @@ import threading
 import tty
 from modules import bruteforce, graphdb
 from modules.attempt_store import AttemptStore
-from modules.logger import sshmap_logger, setup_debug_logging
+from modules.logger import adjust_log_verbosity, sshmap_logger, setup_debug_logging
 from modules.helpers.logger import highlight
 from modules.config import CONFIG
 from modules.utils import (
@@ -221,6 +221,12 @@ def start_pause_key_listener(controller):
                     _prompt_block_host()
                 elif key and key.lower() == "u":
                     _prompt_unblock_host()
+                elif key == "+":
+                    verbosity = adjust_log_verbosity(1)
+                    sshmap_logger.display(f"Log verbosity increased to {verbosity}.")
+                elif key == "-":
+                    verbosity = adjust_log_verbosity(-1)
+                    sshmap_logger.display(f"Log verbosity decreased to {verbosity}.")
         except Exception as e:
             sshmap_logger.debug(f"Pause hotkey listener stopped: {e}")
         finally:
@@ -232,7 +238,7 @@ def start_pause_key_listener(controller):
         daemon=True,
     )
     listener_thread.start()
-    sshmap_logger.display("Hotkeys: 'p' pause/resume, 'k' block jumphost, 'u' unblock jumphost.")
+    sshmap_logger.display("Hotkeys: 'p' pause/resume, 'k' block jumphost, 'u' unblock jumphost, '+' more logs, '-' fewer logs.")
     return listener_thread
 
 

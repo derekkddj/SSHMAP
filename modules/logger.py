@@ -14,6 +14,48 @@ import inspect
 import argparse
 
 
+LOG_VERBOSITY_LEVELS = [
+    ("quiet", logging.ERROR),
+    ("verbose", logging.INFO),
+    ("debug", logging.DEBUG),
+]
+
+
+def _apply_log_level(level):
+    sshmap_logger.logger.setLevel(level)
+    logging.getLogger("root").setLevel(level)
+    logging.getLogger().setLevel(level)
+
+
+def _current_log_verbosity_index():
+    current_level = sshmap_logger.logger.getEffectiveLevel()
+    for index, (_, level) in enumerate(LOG_VERBOSITY_LEVELS):
+        if current_level == level:
+            return index
+    return 0
+
+
+def set_log_verbosity(verbosity):
+    for name, level in LOG_VERBOSITY_LEVELS:
+        if name == verbosity:
+            _apply_log_level(level)
+            return name
+    raise ValueError(f"Unknown log verbosity: {verbosity}")
+
+
+def adjust_log_verbosity(delta):
+    new_index = max(
+        0,
+        min(
+            len(LOG_VERBOSITY_LEVELS) - 1,
+            _current_log_verbosity_index() + delta,
+        ),
+    )
+    name, level = LOG_VERBOSITY_LEVELS[new_index]
+    _apply_log_level(level)
+    return name
+
+
 def parse_debug_args():
     debug_parser = argparse.ArgumentParser(add_help=False)
     debug_parser.add_argument("--debug", action="store_true")
@@ -24,17 +66,13 @@ def parse_debug_args():
 
 def setup_debug_logging():
     debug_args = parse_debug_args()
-    root_logger = logging.getLogger("root")
 
     if debug_args.verbose:
-        sshmap_logger.logger.setLevel(logging.INFO)
-        root_logger.setLevel(logging.INFO)
+        set_log_verbosity("verbose")
     elif debug_args.debug:
-        sshmap_logger.logger.setLevel(logging.DEBUG)
-        root_logger.setLevel(logging.DEBUG)
+        set_log_verbosity("debug")
     else:
-        sshmap_logger.logger.setLevel(logging.ERROR)
-        root_logger.setLevel(logging.ERROR)
+        set_log_verbosity("quiet")
 
 
 def create_temp_logger(caller_frame, formatted_text, args, kwargs):
@@ -147,9 +185,10 @@ class NXCAdapter(logging.LoggerAdapter):
             if "module_name" in self.extra
             else colored(self.extra["protocol"], "blue", attrs=["bold"])
         )
+        timestamp = datetime.now().strftime("%H:%M:%S")
 
         return (
-            f"{module_name:<24} {self.extra['host']:<15} {self.extra['port']:<6} {self.extra['hostname'] if self.extra['hostname'] else 'NONE':<16} {msg}",
+            f"{timestamp} {module_name:<24} {self.extra['host']:<15} {self.extra['port']:<6} {self.extra['hostname'] if self.extra['hostname'] else 'NONE':<16} {msg}",
             kwargs,
         )
 
