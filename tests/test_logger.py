@@ -1,7 +1,7 @@
 import re
 import logging
 
-from modules.logger import NXCAdapter, adjust_log_verbosity, set_log_verbosity, sshmap_logger
+from modules.logger import NXCAdapter, adjust_log_verbosity, execution_id, set_log_verbosity, sshmap_logger
 
 
 def test_protocol_format_includes_time():
@@ -16,11 +16,15 @@ def test_protocol_format_includes_time():
 
     formatted, _ = logger.format("[-] [e8e4b6aa-e] root:root")
 
-    assert re.match(r"^\d{2}:\d{2}:\d{2} ", formatted)
+    assert re.match(r"^\d{2}:\d{2}:\d{2} tid:\d+", formatted)
     assert "SSH" in formatted
     assert "172.20.208.153" in formatted
     assert "tehux139" in formatted
     assert "root:root" in formatted
+
+
+def test_execution_id_includes_thread_id():
+    assert re.match(r"^tid:\d+", execution_id())
 
 
 def test_adjust_log_verbosity_cycles_between_quiet_verbose_debug():

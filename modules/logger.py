@@ -12,6 +12,8 @@ from rich.logging import RichHandler
 import functools
 import inspect
 import argparse
+import asyncio
+import threading
 
 
 LOG_VERBOSITY_LEVELS = [
@@ -54,6 +56,18 @@ def adjust_log_verbosity(delta):
     name, level = LOG_VERBOSITY_LEVELS[new_index]
     _apply_log_level(level)
     return name
+
+
+def execution_id():
+    thread_id = getattr(threading, "get_native_id", threading.get_ident)()
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        task = None
+
+    if task is None:
+        return f"tid:{thread_id}"
+    return f"tid:{thread_id}/task:{id(task) & 0xffff:x}"
 
 
 def parse_debug_args():
@@ -186,9 +200,10 @@ class NXCAdapter(logging.LoggerAdapter):
             else colored(self.extra["protocol"], "blue", attrs=["bold"])
         )
         timestamp = datetime.now().strftime("%H:%M:%S")
+        exec_id = execution_id()
 
         return (
-            f"{timestamp} {module_name:<24} {self.extra['host']:<15} {self.extra['port']:<6} {self.extra['hostname'] if self.extra['hostname'] else 'NONE':<16} {msg}",
+            f"{timestamp} {exec_id:<21} {module_name:<24} {self.extra['host']:<15} {self.extra['port']:<6} {self.extra['hostname'] if self.extra['hostname'] else 'NONE':<16} {msg}",
             kwargs,
         )
 

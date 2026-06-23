@@ -179,7 +179,7 @@ async def try_single_credential(
                 )
                 return None
     except asyncio.CancelledError:
-        sshmap_logger.error(f"[{host}][CANCELLED] Brute force attempt was cancelled.")
+        sshmap_logger.debug(f"[{host}][CANCELLED] Brute force attempt was cancelled.")
         raise
     except asyncssh.ConnectionLost:
         # Re-raise ConnectionLost for retry logic
