@@ -652,6 +652,7 @@ async def async_main(args):
     queue = AsyncRandomQueue(randomize=not args.ordered_targets)
     task_ids = {}
     active_task_counts = {}
+    active_jump_host_display_limit = 25
     pause_controller = ScanPauseController()
     pause_listener = start_pause_key_listener(pause_controller)
     scan_origin_host = initial_jump_host
@@ -678,6 +679,45 @@ async def async_main(args):
         )
         pause_controller.bind_progress(progress, task_ids)
 
+        scan_summary_task = progress.add_task(
+            description="Scan summary",
+            total=len(new_targets),
+            jump_host="Scan summary",
+            status="",
+            visible=True,
+        )
+
+        def refresh_visible_jump_tasks():
+            visible_hosts = set(
+                list(active_task_counts.keys())[:active_jump_host_display_limit]
+            )
+            for host, task_id in task_ids.items():
+                progress.update(task_id, visible=host in visible_hosts)
+
+        def update_scan_summary(advance=0):
+            task = progress.tasks[scan_summary_task]
+            unfinished = getattr(queue, "_unfinished_tasks", queue.qsize())
+            completed_after = int(task.completed) + advance
+            total = max(int(task.total or 0), completed_after + max(0, unfinished - advance))
+            active_workers = sum(active_task_counts.values())
+            visible_jump_hosts = min(
+                len(active_task_counts), active_jump_host_display_limit
+            )
+            progress.update(
+                scan_summary_task,
+                advance=advance,
+                total=total,
+                status=(
+                    f"{pause_controller.status_label()} | "
+                    f"active jump-hosts: {len(active_task_counts)}/{len(task_ids)} "
+                    f"(showing {visible_jump_hosts}) | "
+                    f"active workers: {active_workers} | queued: {queue.qsize()}"
+                ),
+                visible=True,
+            )
+
+        update_scan_summary()
+
         semaphore = asyncio.Semaphore(args.maxworkers)
 
         async def tracked_worker():
@@ -700,6 +740,7 @@ async def async_main(args):
                             if task_obj.total is not None:
                                 new_total = max(int(task_obj.total) - removed_count, int(task_obj.completed))
                                 progress.update(task_id, total=new_total)
+                        update_scan_summary()
 
                     target, depth, queued_jump = await queue.get()
                     has_task = True
@@ -716,7 +757,8 @@ async def async_main(args):
                     if current_jump in task_ids:
                         active_progress_host = current_jump
                         active_task_counts[current_jump] = active_task_counts.get(current_jump, 0) + 1
-                        progress.update(task_ids[current_jump], visible=True)
+                        refresh_visible_jump_tasks()
+                        update_scan_summary()
 
                     if jump_host and pause_controller.is_jumphost_blocked(jump_host):
                         sshmap_logger.warning(
@@ -790,6 +832,7 @@ async def async_main(args):
                     break
                 finally:
                     if has_task:
+                        update_scan_summary(advance=1)
                         await queue.task_done()
                     if active_progress_host is not None:
                         active_task_counts[active_progress_host] = max(
@@ -797,8 +840,8 @@ async def async_main(args):
                         )
                         if active_task_counts[active_progress_host] == 0:
                             active_task_counts.pop(active_progress_host, None)
-                            if active_progress_host in task_ids:
-                                progress.update(task_ids[active_progress_host], visible=False)
+                            refresh_visible_jump_tasks()
+                        update_scan_summary()
 
         workers = [
             asyncio.create_task(tracked_worker()) for _ in range(args.maxworkers)
