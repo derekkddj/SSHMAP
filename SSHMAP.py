@@ -669,6 +669,14 @@ async def async_main(args):
 
     with Live(progress, console=console, refresh_per_second=10):
 
+        scan_summary_task = progress.add_task(
+            description="Scan summary",
+            total=len(new_targets),
+            jump_host="Scan summary",
+            status="",
+            visible=True,
+        )
+
         # Add a task per initial jump host (in this case, just one unless more logic added)
         task_ids[initial_jump_host] = progress.add_task(
             description=f"Scanning from {initial_jump_host}",
@@ -678,14 +686,6 @@ async def async_main(args):
             visible=False,
         )
         pause_controller.bind_progress(progress, task_ids)
-
-        scan_summary_task = progress.add_task(
-            description="Scan summary",
-            total=len(new_targets),
-            jump_host="Scan summary",
-            status="",
-            visible=True,
-        )
 
         def refresh_visible_jump_tasks():
             visible_hosts = set(
