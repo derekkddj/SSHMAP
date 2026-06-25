@@ -13,6 +13,11 @@ import socks  # PySocks
 _SAFE_FILENAME_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+def _clean_ipv4(value):
+    match = re.search(r"(\d+\.\d+\.\d+\.\d+)", str(value or ""))
+    return match.group(1) if match else None
+
+
 def sanitize_filename_component(value: str, default: str = "unknown", max_len: int = 128) -> str:
     """Sanitize an arbitrary string for safe use as a single filename component.
 
@@ -254,7 +259,9 @@ async def get_remote_ip(ssh_client):
         for cidr in cidrs:
             if "/" in cidr and "127.0.0.1" not in cidr:
                 ip, mask = cidr.split("/")
-                ip_info.append({"ip": ip, "mask": int(mask)})
+                ip = _clean_ipv4(ip)
+                if ip:
+                    ip_info.append({"ip": ip, "mask": int(mask)})
 
     # Fallback to `netstat -in` + `ifconfig` for HP-UX, Solaris, AIX, etc.
     # Uses a single awk command to extract interfaces and parse netmasks accurately
@@ -302,8 +309,10 @@ done"""
                 if "/" in line and "127.0.0.1" not in line:
                     try:
                         ip, mask = line.split("/")
-                        ip_info.append({"ip": ip, "mask": int(mask)})
-                        sshmap_logger.debug(f"Parsed IP from netstat+ifconfig: {ip}/{mask}")
+                        ip = _clean_ipv4(ip)
+                        if ip:
+                            ip_info.append({"ip": ip, "mask": int(mask)})
+                            sshmap_logger.debug(f"Parsed IP from netstat+ifconfig: {ip}/{mask}")
                     except Exception as e:
                         sshmap_logger.warning(f"Error parsing line '{line}': {e}")
 
@@ -388,6 +397,11 @@ def in_same_subnet(ip1, mask1, ip2, mask2):
 
 
 def get_all_ips_in_subnet(ip, mask):
+    raw_ip = ip
+    ip = _clean_ipv4(raw_ip)
+    if not ip:
+        sshmap_logger.warning(f"Skipping invalid subnet IP: {raw_ip}")
+        return []
     mask = max(mask, CONFIG["max_mask"] if CONFIG["max_mask"] else 24)
     network = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
     return [str(host) for host in network.hosts()]
