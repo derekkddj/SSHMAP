@@ -19,7 +19,7 @@ class MockSSHClient:
         self.command_responses = command_responses
         self.connection = MockConnection()
     
-    async def exec_command_with_stderr(self, cmd):
+    async def exec_command_with_stderr(self, cmd, **kwargs):
         """Simulate command execution with predefined responses"""
         # Check if command matches any of our responses
         for pattern, (stdout, stderr, exit_status) in self.command_responses.items():
