@@ -466,6 +466,7 @@ async def handle_target(
                                     total=len(new_targets),
                                     jump_host=remote_hostname,
                                     status=pause_controller.status_label() if pause_controller else "",
+                                    visible=False,
                                 )
                             sshmap_logger.info(
                                 f"Curent-depth: {current_depth}, scaning from: {source_host} We create a recursive job, using remote_hostname: {remote_hostname} as the jump, loaded {len(new_targets)} new targets"
@@ -650,6 +651,7 @@ async def async_main(args):
     # Launch multiple tasks concurrently for all targets
     queue = AsyncRandomQueue(randomize=not args.ordered_targets)
     task_ids = {}
+    active_task_counts = {}
     pause_controller = ScanPauseController()
     pause_listener = start_pause_key_listener(pause_controller)
     scan_origin_host = initial_jump_host
@@ -672,6 +674,7 @@ async def async_main(args):
             total=len(new_targets),
             jump_host=initial_jump_host,
             status=pause_controller.status_label(),
+            visible=False,
         )
         pause_controller.bind_progress(progress, task_ids)
 
@@ -681,6 +684,7 @@ async def async_main(args):
             nonlocal initial_jump_session
             while True:
                 has_task = False
+                active_progress_host = None
                 try:
                     await pause_controller.wait_if_paused()
 
@@ -708,6 +712,11 @@ async def async_main(args):
                         jump_host = queued_jump
 
                     current_jump = jump_host if jump_host else initial_jump_host
+
+                    if current_jump in task_ids:
+                        active_progress_host = current_jump
+                        active_task_counts[current_jump] = active_task_counts.get(current_jump, 0) + 1
+                        progress.update(task_ids[current_jump], visible=True)
 
                     if jump_host and pause_controller.is_jumphost_blocked(jump_host):
                         sshmap_logger.warning(
@@ -782,6 +791,14 @@ async def async_main(args):
                 finally:
                     if has_task:
                         await queue.task_done()
+                    if active_progress_host is not None:
+                        active_task_counts[active_progress_host] = max(
+                            0, active_task_counts.get(active_progress_host, 1) - 1
+                        )
+                        if active_task_counts[active_progress_host] == 0:
+                            active_task_counts.pop(active_progress_host, None)
+                            if active_progress_host in task_ids:
+                                progress.update(task_ids[active_progress_host], visible=False)
 
         workers = [
             asyncio.create_task(tracked_worker()) for _ in range(args.maxworkers)

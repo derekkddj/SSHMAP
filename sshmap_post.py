@@ -180,18 +180,22 @@ async def async_main(args):
     # Build all jobs first (module x host)
     jobs = []
     with progress:
+        aggregate_task = progress.add_task(
+            "[cyan]Post-exploitation", total=len(hostnames) * len(modules_to_run)
+        )
         for hostname in hostnames:
             for module_name in modules_to_run:
-                task = progress.add_task(
-                    f"[cyan]{module_name} on {hostname}", total=1
-                )
-                jobs.append((hostname, module_name, task))
+                jobs.append((hostname, module_name))
 
         max_concurrent = max(1, args.max_concurrent)
         semaphore = asyncio.Semaphore(max_concurrent)
 
-        async def run_job(hostname: str, module_name: str, task_id: int):
+        async def run_job(hostname: str, module_name: str):
             async with semaphore:
+                progress.update(
+                    aggregate_task,
+                    description=f"[cyan]{module_name} on {hostname}",
+                )
                 result = await run_module_on_host(
                     module_name,
                     hostname,
@@ -202,7 +206,7 @@ async def async_main(args):
                     proxy_url=args.proxy,
                 )
 
-                progress.update(task_id, advance=1)
+                progress.update(aggregate_task, advance=1)
 
                 if result["success"]:
                     progress.console.print(
@@ -214,7 +218,7 @@ async def async_main(args):
                     )
 
         await asyncio.gather(
-            *(run_job(hostname, module_name, task_id) for hostname, module_name, task_id in jobs)
+            *(run_job(hostname, module_name) for hostname, module_name in jobs)
         )
     
     console.print("\n[green]Post-exploitation completed![/green]")
