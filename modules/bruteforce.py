@@ -41,15 +41,13 @@ def _get_reusable_connections(previous_connections, host, port):
             same_port = props.get('port') == port
 
         if props.get('ip') == host and same_port:
-            key = (
-                host,
-                port,
-                conn['to'],
-                props.get('user'),
-                props.get('method'),
-                props.get('creds'),
-            )
-            reusable_connections[key] = conn
+            # One fallback path per destination is enough to continue scanning.
+            # Keeping every historical credential can reopen thousands of SSH
+            # sessions on dense graphs and grow memory until the scan ends.
+            key = (host, port, conn['to'])
+            existing = reusable_connections.get(key)
+            if existing is None or props.get('time', 0) > existing.get('props', {}).get('time', 0):
+                reusable_connections[key] = conn
 
     return reusable_connections
 
@@ -397,12 +395,16 @@ async def try_all(
                     try:
                         remote_hostname = result.ssh_session.get_remote_hostname()
                         if remote_hostname:
-                            key = (host, port, remote_hostname)
-                            if key in old_connections:
+                            matching_old_keys = [
+                                key for key in old_connections
+                                if len(key) >= 3 and key[0] == host and key[1] == port and key[2] == remote_hostname
+                            ]
+                            if matching_old_keys:
                                 sshmap_logger.debug(
                                     f"[FALLBACK] New connection replaces old connection to {remote_hostname}"
                                 )
-                                del old_connections[key]
+                                for key in matching_old_keys:
+                                    del old_connections[key]
                     except Exception as e:
                         sshmap_logger.debug(
                             f"[FALLBACK] Could not determine remote hostname for connection: {e}"
@@ -422,6 +424,7 @@ async def try_all(
         
         # Create fallback tasks with timeout protection
         fallback_tasks = []
+        fallback_semaphore = asyncio.Semaphore(maxworkers)
 
         for key, conn in old_connections.items():
             props = conn.get('props', {})
@@ -453,31 +456,32 @@ async def try_all(
             
             # Create task with timeout wrapper
             async def try_fallback_reconnect(cred, target_conn):
-                try:
-                    # Use asyncio.wait_for to add timeout protection
-                    result = await asyncio.wait_for(
-                        try_single_credential(
-                            host,
-                            port,
-                            cred,
-                            jumper=jumper,
-                            credential_store=credential_store,
-                            ssh_session_manager=ssh_session_manager,
-                            proxy_url=proxy_url
-                        ),
-                        timeout=CONFIG["scan_timeout"] * 2  # Give fallback 2x normal timeout
-                    )
-                    return result, target_conn
-                except asyncio.TimeoutError:
-                    sshmap_logger.warning(
-                        f"[FALLBACK] Timeout re-establishing connection to {target_conn.get('to', 'unknown')} ({host}:{port})"
-                    )
-                    return None, target_conn
-                except Exception as e:
-                    sshmap_logger.debug(
-                        f"[FALLBACK] Exception attempting to re-establish connection to {target_conn.get('to', 'unknown')}: {type(e).__name__}: {e}"
-                    )
-                    return None, target_conn
+                async with fallback_semaphore:
+                    try:
+                        # Use asyncio.wait_for to add timeout protection
+                        result = await asyncio.wait_for(
+                            try_single_credential(
+                                host,
+                                port,
+                                cred,
+                                jumper=jumper,
+                                credential_store=credential_store,
+                                ssh_session_manager=ssh_session_manager,
+                                proxy_url=proxy_url
+                            ),
+                            timeout=CONFIG["scan_timeout"] * 2  # Give fallback 2x normal timeout
+                        )
+                        return result, target_conn
+                    except asyncio.TimeoutError:
+                        sshmap_logger.warning(
+                            f"[FALLBACK] Timeout re-establishing connection to {target_conn.get('to', 'unknown')} ({host}:{port})"
+                        )
+                        return None, target_conn
+                    except Exception as e:
+                        sshmap_logger.debug(
+                            f"[FALLBACK] Exception attempting to re-establish connection to {target_conn.get('to', 'unknown')}: {type(e).__name__}: {e}"
+                        )
+                        return None, target_conn
             
             task = asyncio.create_task(try_fallback_reconnect(prev_cred, conn))
             fallback_tasks.append(task)

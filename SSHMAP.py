@@ -36,6 +36,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 import random
+import time
 from modules.helpers.AsyncRandomQueue import AsyncRandomQueue
 from modules.notifier import notifier
 
@@ -432,11 +433,21 @@ async def handle_target(
                             else:
                                 new_targets = []
                                 for remote_ip_cidr in remote_ips:
-                                    new_targets.extend(
-                                        get_all_ips_in_subnet(
-                                            remote_ip_cidr["ip"], remote_ip_cidr["mask"]
-                                        )
+                                    ip = remote_ip_cidr["ip"]
+                                    mask = remote_ip_cidr["mask"]
+                                    effective_mask = max(
+                                        mask, CONFIG["max_mask"] if CONFIG["max_mask"] else 24
                                     )
+                                    sshmap_logger.info(
+                                        f"[{remote_hostname}] Expanding subnet {ip}/{mask} "
+                                        f"using /{effective_mask}"
+                                    )
+                                    expanded_targets = get_all_ips_in_subnet(ip, mask)
+                                    sshmap_logger.info(
+                                        f"[{remote_hostname}] Expanded subnet {ip}/{mask} "
+                                        f"to {len(expanded_targets)} target(s)"
+                                    )
+                                    new_targets.extend(expanded_targets)
                                 # Create a progress task for the new remote_hostname
                                 # remove duplicated targets
                                 new_targets = list(set(new_targets))
@@ -653,6 +664,7 @@ async def async_main(args):
     task_ids = {}
     active_task_counts = {}
     active_jump_host_display_limit = 25
+    last_completed_at = time.monotonic()
     pause_controller = ScanPauseController()
     pause_listener = start_pause_key_listener(pause_controller)
     scan_origin_host = initial_jump_host
@@ -695,11 +707,15 @@ async def async_main(args):
                 progress.update(task_id, visible=host in visible_hosts)
 
         def update_scan_summary(advance=0):
+            nonlocal last_completed_at
+            if advance:
+                last_completed_at = time.monotonic()
             task = progress.tasks[scan_summary_task]
             unfinished = getattr(queue, "_unfinished_tasks", queue.qsize())
             completed_after = int(task.completed) + advance
             total = max(int(task.total or 0), completed_after + max(0, unfinished - advance))
             active_workers = sum(active_task_counts.values())
+            idle_seconds = int(time.monotonic() - last_completed_at)
             visible_jump_hosts = min(
                 len(active_task_counts), active_jump_host_display_limit
             )
@@ -711,7 +727,8 @@ async def async_main(args):
                     f"{pause_controller.status_label()} | "
                     f"active jump-hosts: {len(active_task_counts)}/{len(task_ids)} "
                     f"(showing {visible_jump_hosts}) | "
-                    f"active workers: {active_workers} | queued: {queue.qsize()}"
+                    f"active workers: {active_workers} | queued: {queue.qsize()} | "
+                    f"last completed: {idle_seconds}s ago"
                 ),
                 visible=True,
             )
@@ -724,6 +741,7 @@ async def async_main(args):
             nonlocal initial_jump_session
             while True:
                 has_task = False
+                current_target = None
                 active_progress_host = None
                 try:
                     await pause_controller.wait_if_paused()
@@ -743,6 +761,7 @@ async def async_main(args):
                         update_scan_summary()
 
                     target, depth, queued_jump = await queue.get()
+                    current_target = target
                     has_task = True
 
                     if queued_jump is not None and hasattr(queued_jump, "get_remote_hostname"):
@@ -830,6 +849,11 @@ async def async_main(args):
                         progress.update(task_ids[current_jump], advance=1)
                 except asyncio.CancelledError:
                     break
+                except Exception as e:
+                    target_label = current_target if current_target is not None else "unknown"
+                    sshmap_logger.error(
+                        f"Worker error while processing {target_label}: {type(e).__name__}: {e}"
+                    )
                 finally:
                     if has_task:
                         update_scan_summary(advance=1)

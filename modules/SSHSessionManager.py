@@ -2,6 +2,7 @@ from .SSHSession import SSHSession
 from .logger import sshmap_logger
 from .config import CONFIG
 import asyncio
+import time
 
 
 class SSHSessionManager:
@@ -40,7 +41,17 @@ class SSHSessionManager:
         """
         # GraphDB uses the synchronous Neo4j driver; run path lookup off the event loop
         # so multiple hosts can be processed concurrently.
-        path = await asyncio.to_thread(self.graphdb.find_path, start_hostname, target_hostname)
+        path_lookup_start = time.monotonic()
+        sshmap_logger.info(
+            f"Resolving Neo4j path from {start_hostname} to {target_hostname}"
+        )
+        path = await asyncio.to_thread(
+            self.graphdb.find_path, start_hostname, target_hostname
+        )
+        sshmap_logger.info(
+            f"Resolved Neo4j path from {start_hostname} to {target_hostname} "
+            f"in {time.monotonic() - path_lookup_start:.1f}s"
+        )
         if not path:
             sshmap_logger.error(f"No path found from {start_hostname} to {target_hostname}")
             return None
