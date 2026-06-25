@@ -111,20 +111,23 @@ async def async_main(args):
     credential_store = CredentialStore(args.credentialspath)
     
     # Get local hostname
-    local_hostname = None
-    try:
-        result = subprocess.run(
-            ["hostname"], capture_output=True, text=True, timeout=5
-        )
-        if result.returncode == 0:
-            local_hostname = result.stdout.strip()
-            sshmap_logger.display(f"Local hostname: {local_hostname}")
-        else:
-            sshmap_logger.error("Failed to get local hostname")
+    local_hostname = getattr(args, 'start_from', None)
+    if not local_hostname:
+        try:
+            result = subprocess.run(
+                ["hostname"], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                local_hostname = result.stdout.strip()
+                sshmap_logger.display(f"Local hostname: {local_hostname}")
+            else:
+                sshmap_logger.error("Failed to get local hostname")
+                return
+        except Exception as e:
+            sshmap_logger.error(f"Failed to get local hostname: {e}")
             return
-    except Exception as e:
-        sshmap_logger.error(f"Failed to get local hostname: {e}")
-        return
+    else:
+        sshmap_logger.display(f"Using fake source host for graph resolution: {local_hostname}")
     
     # Initialize module registry
     registry = ModuleRegistry()
@@ -291,7 +294,14 @@ def main():
         default=10,
         help="Maximum number of concurrent module executions (default: 10)",
     )
-    
+
+    parser.add_argument(
+        "--start-from",
+        type=str,
+        default=None,
+        help="Fake the local hostname used for Neo4j path resolution (e.g., 'nessus')",
+    )
+
     args = parser.parse_args()
     
     # Print banner
