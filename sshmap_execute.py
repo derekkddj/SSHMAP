@@ -121,16 +121,19 @@ async def async_main(args):
     credential_store = CredentialStore(args.credentialspath)
 
     # I get my "hostname" for the starting point, execute "hostname" in this host with python
-    local_hostname = None
-    try:
-        result = subprocess.run(
-            ["hostname"], capture_output=True, text=True, check=True
-        )
-        local_hostname = result.stdout.strip()
+    local_hostname = getattr(args, 'start_from', None)
+    if not local_hostname:
+        try:
+            result = subprocess.run(
+                ["hostname"], capture_output=True, text=True, check=True
+            )
+            local_hostname = result.stdout.strip()
+        except Exception as e:
+            sshmap_logger.error(f"Failed to get local hostname: {e}")
+            return
         sshmap_logger.display(f"Local hostname: {local_hostname}")
-    except Exception as e:
-        sshmap_logger.error(f"Failed to get local hostname: {e}")
-        return
+    else:
+        sshmap_logger.display(f"Using fake source host for graph resolution: {local_hostname}")
     try:
         if args.all:
             sshmap_logger.display(
@@ -272,6 +275,12 @@ def main():
         "--pty",
         action="store_true",
         help="Force PTY allocation for command execution (auto-enabled for sudo commands)",
+    )
+    parser.add_argument(
+        "--start-from",
+        type=str,
+        default=None,
+        help="Fake the local hostname used for Neo4j path resolution (e.g., 'nessus')",
     )
 
     args = parser.parse_args()
