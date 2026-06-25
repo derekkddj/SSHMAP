@@ -16,7 +16,7 @@ def test_protocol_format_includes_time():
 
     formatted, _ = logger.format("[-] [e8e4b6aa-e] root:root")
 
-    assert re.match(r"^\d{2}:\d{2}:\d{2} tid:\d+", formatted)
+    assert re.match(r"^\d{2}:\d{2}:\d{2} (task:[0-9a-f]+|tid:\d+)", formatted)
     assert "SSH" in formatted
     assert "172.20.208.153" in formatted
     assert "tehux139" in formatted
@@ -24,7 +24,7 @@ def test_protocol_format_includes_time():
 
 
 def test_execution_id_includes_thread_id():
-    assert re.match(r"^tid:\d+", execution_id())
+    assert re.match(r"^(task:[0-9a-f]+|tid:\d+)", execution_id())
 
 
 def test_adjust_log_verbosity_cycles_between_quiet_verbose_debug():

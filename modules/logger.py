@@ -59,15 +59,16 @@ def adjust_log_verbosity(delta):
 
 
 def execution_id():
-    thread_id = getattr(threading, "get_native_id", threading.get_ident)()
     try:
         task = asyncio.current_task()
     except RuntimeError:
         task = None
 
-    if task is None:
-        return f"tid:{thread_id}"
-    return f"tid:{thread_id}/task:{id(task) & 0xffff:x}"
+    if task is not None:
+        return f"task:{id(task) & 0xffff:x}"
+
+    thread_id = getattr(threading, "get_native_id", threading.get_ident)()
+    return f"tid:{thread_id}"
 
 
 def parse_debug_args():
@@ -203,7 +204,7 @@ class NXCAdapter(logging.LoggerAdapter):
         exec_id = execution_id()
 
         return (
-            f"{timestamp} {exec_id:<21} {module_name:<24} {self.extra['host']:<15} {self.extra['port']:<6} {self.extra['hostname'] if self.extra['hostname'] else 'NONE':<16} {msg}",
+            f"{timestamp} {exec_id:<10} {module_name:<24} {self.extra['host']:<15} {self.extra['port']:<6} {self.extra['hostname'] if self.extra['hostname'] else 'NONE':<16} {msg}",
             kwargs,
         )
 
