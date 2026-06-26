@@ -260,6 +260,7 @@ async def handle_target(
     force_rescan=False,
     force_targets_mode=False,
     force_targets_ips=None,
+    extra_recursive_targets=None,
     proxy_url=None,
     pause_controller=None,
     scan_origin_host=None,
@@ -460,6 +461,13 @@ async def handle_target(
                                     new_targets = [
                                         ip for ip in new_targets if ip in whitelist_ips
                                     ]
+                                if extra_recursive_targets:
+                                    before_extra = len(new_targets)
+                                    new_targets = list(set(new_targets + extra_recursive_targets))
+                                    sshmap_logger.info(
+                                        f"Added {len(new_targets) - before_extra} extra recursive target(s) "
+                                        f"for {remote_hostname}"
+                                    )
                             # tests with 4 ips only, for docker tests
                             """
                             new_targets = [
@@ -591,6 +599,7 @@ async def async_main(args):
     blacklist_ips = []
     whitelist_ips = None
     force_targets_ips = None
+    extra_recursive_targets = None
     
     # Handle force-targets mode: only scan exact IPs specified, enables recursive scanning with same targets
     force_targets_mode = False
@@ -604,6 +613,10 @@ async def async_main(args):
     else:
         blacklist_ips = read_targets(args.blacklist) if args.blacklist else []
         whitelist_ips = read_targets(args.whitelist) if args.whitelist else None
+        extra_recursive_targets = (
+            read_targets(args.extra_recursive_targets)
+            if args.extra_recursive_targets else None
+        )
         
         # filter targets based on whitelist and blacklist
         if whitelist_ips:
@@ -621,6 +634,10 @@ async def async_main(args):
     sshmap_logger.display(
         f"Starting attack on {len(new_targets)} targets with max depth {max_depth}"
     )
+    if extra_recursive_targets:
+        sshmap_logger.display(
+            f"Adding {len(extra_recursive_targets)} extra recursive target(s) to every discovered jump host"
+        )
     # Initialize SSHSSessionManager
     ssh_session_manager = SSHSessionManager(
         graphdb=graph, credential_store=credential_store, proxy_url=args.proxy
@@ -844,6 +861,7 @@ async def async_main(args):
                             args.force_rescan,
                             force_targets_mode,
                             force_targets_ips,
+                            extra_recursive_targets,
                             proxy_url=args.proxy,
                             pause_controller=pause_controller,
                             scan_origin_host=scan_origin_host,
@@ -955,6 +973,11 @@ def main():
     )
     parser.add_argument(
         "--force-targets", required=False, help="Path to the file with IPs or CIDRs that are the ONLY targets to scan (ignores whitelist/blacklist, uses same targets for recursive scans)"
+    )
+    parser.add_argument(
+        "--extra-recursive-targets",
+        required=False,
+        help="Path to IPs/CIDRs to add to every discovered jump host in addition to interface-derived targets",
     )
     parser.add_argument(
         "--users",
