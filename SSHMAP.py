@@ -568,17 +568,22 @@ async def async_main(args):
     credential_store = CredentialStore(args.credentialspath)
     targets = read_targets(args.targets)
 
-    users = read_list_from_file_or_string(args.users)
-    passwords = read_list_from_file_or_string(args.passwords)
-    # Convert keyfile paths to absolute paths
-    keyfiles = load_keys(args.keys)
+    if args.no_import_creds:
+        sshmap_logger.display(
+            "Skipping users/passwords/keys import; using credentials CSV as-is."
+        )
+    else:
+        users = read_list_from_file_or_string(args.users)
+        passwords = read_list_from_file_or_string(args.passwords)
+        # Convert keyfile paths to absolute paths
+        keyfiles = load_keys(args.keys)
 
-    for user in users:
-        for password in passwords:
-            await credential_store.store("_bruteforce", 22, user, password, "password")
-        for keyfile in keyfiles:
-            await credential_store.store("_bruteforce", 22, user, keyfile, "keyfile")
-    # Preload keys from the directory
+        for user in users:
+            for password in passwords:
+                await credential_store.store("_bruteforce", 22, user, password, "password")
+            for keyfile in keyfiles:
+                await credential_store.store("_bruteforce", 22, user, keyfile, "keyfile")
+        # Preload keys from the directory
 
     graph.add_host(start_host, start_ips)
 
@@ -970,6 +975,11 @@ def main():
         "--keys",
         default="wordlists/keys/",
         help="Path to directory with SSH private keys",
+    )
+    parser.add_argument(
+        "--no-import-creds",
+        action="store_true",
+        help="Do not populate credentials.csv from --users, --passwords, or --keys",
     )
     parser.add_argument(
         "--maxworkers",
