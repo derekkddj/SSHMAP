@@ -49,10 +49,11 @@ def test_get_reusable_connections_preserves_enabled_credentials():
     reusable = _get_reusable_connections(previous_connections, "10.57.0.32", 22)
 
     assert len(reusable) == 1
-    assert ("10.57.0.32", 22, "srp_geiurj", "usamid", "password", "password") in reusable
+    assert ("10.57.0.32", 22, "srp_geiurj") in reusable
+    assert reusable[("10.57.0.32", 22, "srp_geiurj")]["props"]["user"] == "usamid"
 
 
-def test_get_reusable_connections_keeps_multiple_enabled_credentials():
+def test_get_reusable_connections_keeps_freshest_enabled_credential_per_destination():
     previous_connections = [
         {
             "to": "srp_geiurj",
@@ -63,6 +64,7 @@ def test_get_reusable_connections_keeps_multiple_enabled_credentials():
                 "method": "password",
                 "creds": "temporal",
                 "disabled": False,
+                "time": 100,
             },
         },
         {
@@ -74,13 +76,17 @@ def test_get_reusable_connections_keeps_multiple_enabled_credentials():
                 "method": "password",
                 "creds": "password",
                 "disabled": False,
+                "time": 200,
             },
         },
     ]
 
     reusable = _get_reusable_connections(previous_connections, "10.57.0.32", 22)
 
-    assert len(reusable) == 2
+    assert len(reusable) == 1
+    key = ("10.57.0.32", 22, "srp_geiurj")
+    assert key in reusable
+    assert reusable[key]["props"]["user"] == "usamid"
 
 
 @pytest.mark.asyncio
