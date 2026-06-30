@@ -1116,13 +1116,14 @@ function applyFilters() {
 
     // If hop filtering is active, expand from selected node by hop layers
     if (hopSourceNodeId !== null && filterState.selectedNodeHops > 0) {
-        const hopTraversal = getHopTraversal(hopSourceNodeId, filterState.selectedNodeHops, allEdges);
+        const hopCandidateEdges = applyEdgeAttributeFilters(allEdges);
+        const hopTraversal = getHopTraversal(hopSourceNodeId, filterState.selectedNodeHops, hopCandidateEdges);
         const hopDistances = hopTraversal.distances;
 
         // Nodes: everything reachable within max hops
         workingNodes = allNodes.filter(n => hopDistances.has(n.id));
 
-        const consecutiveHopEdges = allEdges.filter(e => {
+        const consecutiveHopEdges = hopCandidateEdges.filter(e => {
             if (!hopDistances.has(e.from) || !hopDistances.has(e.to)) {
                 return false;
             }
@@ -1137,7 +1138,7 @@ function applyFilters() {
         } else {
             // Edges: one BFS parent edge per reached node, so node discovery stays fast.
             const parentEdgeIds = new Set(hopTraversal.parentEdgeIds.values());
-            workingEdges = allEdges.filter(e => parentEdgeIds.has(e.id));
+            workingEdges = hopCandidateEdges.filter(e => parentEdgeIds.has(e.id));
             totalAvailableOverride = consecutiveHopEdges.length;
             totalAvailableLabel = 'collapsed hop edges';
         }
@@ -1145,12 +1146,7 @@ function applyFilters() {
 
     // Filter edges by user/method
     let filteredEdges = workingEdges;
-    if (filterState.users.length > 0) {
-        filteredEdges = filteredEdges.filter(e => filterState.users.includes(e.user));
-    }
-    if (filterState.methods.length > 0) {
-        filteredEdges = filteredEdges.filter(e => filterState.methods.includes(e.method));
-    }
+    filteredEdges = applyEdgeAttributeFilters(filteredEdges);
 
     // Limit edges by recency (most recent first) - skip if hop filtering is active with a selected node
     const edgesBeforeLimit = filteredEdges.length;
@@ -1302,6 +1298,17 @@ function applyFilters() {
             });
         }, 100);
     }
+}
+
+function applyEdgeAttributeFilters(edgeList) {
+    let filteredEdges = edgeList;
+    if (filterState.users.length > 0) {
+        filteredEdges = filteredEdges.filter(e => filterState.users.includes(e.user));
+    }
+    if (filterState.methods.length > 0) {
+        filteredEdges = filteredEdges.filter(e => filterState.methods.includes(e.method));
+    }
+    return filteredEdges;
 }
 
 function getHopTraversal(startNodeId, maxHops, edgeList) {
