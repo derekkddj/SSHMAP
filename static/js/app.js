@@ -1129,7 +1129,7 @@ function applyFilters() {
             }
             const fromDist = hopDistances.get(e.from);
             const toDist = hopDistances.get(e.to);
-            return Math.abs(fromDist - toDist) === 1 && Math.min(fromDist, toDist) < filterState.selectedNodeHops;
+            return toDist === fromDist + 1 && fromDist < filterState.selectedNodeHops;
         });
 
         if (filterState.hopEdgeMode === 'all') {
@@ -1322,9 +1322,7 @@ function getHopTraversal(startNodeId, maxHops, edgeList) {
     const adjacency = new Map();
     edgeList.forEach(edge => {
         if (!adjacency.has(edge.from)) adjacency.set(edge.from, new Set());
-        if (!adjacency.has(edge.to)) adjacency.set(edge.to, new Set());
         adjacency.get(edge.from).add(edge);
-        adjacency.get(edge.to).add(edge);
     });
 
     if (!adjacency.has(startNodeId)) {
@@ -1349,7 +1347,7 @@ function getHopTraversal(startNodeId, maxHops, edgeList) {
         const candidateEdges = Array.from(adjacency.get(current.id) || [])
             .sort(compareHopEdges);
         candidateEdges.forEach(edge => {
-            const neighborId = edge.from === current.id ? edge.to : edge.from;
+            const neighborId = edge.to;
             if (!distances.has(neighborId)) {
                 distances.set(neighborId, current.depth + 1);
                 parentEdgeIds.set(neighborId, edge.id);
