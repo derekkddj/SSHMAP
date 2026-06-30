@@ -11,7 +11,8 @@ let filterState = {
     methods: [],
     maxEdges: 0,
     minConnections: 0,
-    selectedNodeHops: 0
+    selectedNodeHops: 0,
+    hopEdgeMode: 'tree'
 };
 let uniqueUsers = new Set();
 let uniqueMethods = new Set();
@@ -980,7 +981,8 @@ function restoreFullGraph() {
         methods: [],
         maxEdges: 0,
         minConnections: 0,
-        selectedNodeHops: 0
+        selectedNodeHops: 0,
+        hopEdgeMode: 'tree'
     };
     selectedNodeId = null;
 
@@ -995,6 +997,10 @@ function restoreFullGraph() {
     document.getElementById('minConnectionsValue').textContent = '0';
     document.getElementById('selectedNodeHopsSlider').value = 0;
     document.getElementById('selectedNodeHopsValue').textContent = 'All';
+    const hopEdgeModeTree = document.querySelector('input[name="hopEdgeMode"][value="tree"]');
+    if (hopEdgeModeTree) {
+        hopEdgeModeTree.checked = true;
+    }
     
     // Clear search input
     const searchInput = document.getElementById('search');
@@ -1082,6 +1088,7 @@ function onFilterChange() {
     filterState.maxEdges = parseInt(document.getElementById('maxEdgesSlider').value) || 0;
     filterState.minConnections = parseInt(document.getElementById('minConnectionsSlider').value) || 0;
     filterState.selectedNodeHops = parseInt(document.getElementById('selectedNodeHopsSlider').value) || 0;
+    filterState.hopEdgeMode = document.querySelector('input[name="hopEdgeMode"]:checked')?.value || 'tree';
 
     applyFilters();
 }
@@ -1104,16 +1111,18 @@ function applyFilters() {
     // Determine which nodes and edges to work with based on hop filtering
     let workingNodes = baseNodes;
     let workingEdges = baseEdges;
+    let totalAvailableOverride = null;
+    let totalAvailableLabel = null;
 
     // If hop filtering is active, expand from selected node by hop layers
     if (hopSourceNodeId !== null && filterState.selectedNodeHops > 0) {
-        const hopDistances = getHopDistances(hopSourceNodeId, filterState.selectedNodeHops, allEdges);
+        const hopTraversal = getHopTraversal(hopSourceNodeId, filterState.selectedNodeHops, allEdges);
+        const hopDistances = hopTraversal.distances;
 
         // Nodes: everything reachable within max hops
         workingNodes = allNodes.filter(n => hopDistances.has(n.id));
 
-        // Edges: only between consecutive hop layers (prevents dense edge explosion)
-        workingEdges = allEdges.filter(e => {
+        const consecutiveHopEdges = allEdges.filter(e => {
             if (!hopDistances.has(e.from) || !hopDistances.has(e.to)) {
                 return false;
             }
@@ -1121,6 +1130,17 @@ function applyFilters() {
             const toDist = hopDistances.get(e.to);
             return Math.abs(fromDist - toDist) === 1 && Math.min(fromDist, toDist) < filterState.selectedNodeHops;
         });
+
+        if (filterState.hopEdgeMode === 'all') {
+            // Edges: only between consecutive hop layers (prevents same-layer cycles)
+            workingEdges = consecutiveHopEdges;
+        } else {
+            // Edges: one BFS parent edge per reached node, so node discovery stays fast.
+            const parentEdgeIds = new Set(hopTraversal.parentEdgeIds.values());
+            workingEdges = allEdges.filter(e => parentEdgeIds.has(e.id));
+            totalAvailableOverride = consecutiveHopEdges.length;
+            totalAvailableLabel = 'collapsed hop edges';
+        }
     }
 
     // Filter edges by user/method
@@ -1237,8 +1257,8 @@ function applyFilters() {
         isProgrammaticGraphUpdate = false;
     }
 
-    const totalAvailable = edgesBeforeLimit;
-    updateStats(filteredNodes.length, filteredEdges.length, totalAvailable, isLargeGraph);
+    const totalAvailable = totalAvailableOverride || edgesBeforeLimit;
+    updateStats(filteredNodes.length, filteredEdges.length, totalAvailable, isLargeGraph, totalAvailableLabel);
 
     // Handle physics based on manual override or graph size
     const shouldEnablePhysics = physicsManualOverride !== null ? physicsManualOverride : !isLargeGraph;
@@ -1284,42 +1304,72 @@ function applyFilters() {
     }
 }
 
-function getHopDistances(startNodeId, maxHops, edgeList) {
+function getHopTraversal(startNodeId, maxHops, edgeList) {
     if (maxHops <= 0) {
-        return new Map([[startNodeId, 0]]);
+        return {
+            distances: new Map([[startNodeId, 0]]),
+            parentEdgeIds: new Map()
+        };
     }
 
     const adjacency = new Map();
     edgeList.forEach(edge => {
         if (!adjacency.has(edge.from)) adjacency.set(edge.from, new Set());
         if (!adjacency.has(edge.to)) adjacency.set(edge.to, new Set());
-        adjacency.get(edge.from).add(edge.to);
-        adjacency.get(edge.to).add(edge.from);
+        adjacency.get(edge.from).add(edge);
+        adjacency.get(edge.to).add(edge);
     });
 
     if (!adjacency.has(startNodeId)) {
-        return new Map([[startNodeId, 0]]);
+        return {
+            distances: new Map([[startNodeId, 0]]),
+            parentEdgeIds: new Map()
+        };
     }
 
     const distances = new Map([[startNodeId, 0]]);
+    const parentEdgeIds = new Map();
     const queue = [{ id: startNodeId, depth: 0 }];
+    let queueIndex = 0;
 
-    while (queue.length > 0) {
-        const current = queue.shift();
+    while (queueIndex < queue.length) {
+        const current = queue[queueIndex];
+        queueIndex += 1;
         if (current.depth >= maxHops) {
             continue;
         }
 
-        const neighbors = adjacency.get(current.id) || new Set();
-        neighbors.forEach(neighborId => {
+        const candidateEdges = Array.from(adjacency.get(current.id) || [])
+            .sort(compareHopEdges);
+        candidateEdges.forEach(edge => {
+            const neighborId = edge.from === current.id ? edge.to : edge.from;
             if (!distances.has(neighborId)) {
                 distances.set(neighborId, current.depth + 1);
+                parentEdgeIds.set(neighborId, edge.id);
                 queue.push({ id: neighborId, depth: current.depth + 1 });
             }
         });
     }
 
-    return distances;
+    return { distances, parentEdgeIds };
+}
+
+function compareHopEdges(a, b) {
+    if (a.disabled !== b.disabled) {
+        return a.disabled ? 1 : -1;
+    }
+    return getEdgeTimeValue(b.time) - getEdgeTimeValue(a.time);
+}
+
+function getEdgeTimeValue(time) {
+    if (!time) {
+        return 0;
+    }
+    if (typeof time === 'number') {
+        return time;
+    }
+    const parsed = Date.parse(time);
+    return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 // Toggle filter panel
@@ -1358,6 +1408,11 @@ function updateSelectedNodeHops(value) {
     applyFilters();
 }
 
+function updateHopEdgeMode(value) {
+    filterState.hopEdgeMode = value || 'tree';
+    applyFilters();
+}
+
 // Show/hide loading indicator
 function showLoading(show) {
     const loading = document.getElementById('loading');
@@ -1365,23 +1420,24 @@ function showLoading(show) {
 }
 
 // Update statistics
-function updateStats(nodeCount, edgeCount, totalAvailable, isLargeGraph) {
+function updateStats(nodeCount, edgeCount, totalAvailable, isLargeGraph, totalAvailableLabel) {
     // Update total database counts (from allNodes/allEdges)
     document.getElementById('totalNodeCount').textContent = allNodes.length;
     document.getElementById('totalEdgeCount').textContent = allEdges.length;
     
-    updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph);
+    updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph, totalAvailableLabel);
     updateInsights(nodes.get(), edges.get());
 }
 
-function updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph) {
+function updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph, totalAvailableLabel) {
     const status = document.getElementById('graphStatus');
     if (!status) {
         return;
     }
     let html = `<strong>${nodeCount}</strong> nodes • <strong>${edgeCount}</strong> edges`;
     if (totalAvailable && totalAvailable > edgeCount) {
-        html += ` <span style="color:#f59e0b;">(showing ${edgeCount} of ${totalAvailable} most recent)</span>`;
+        const label = totalAvailableLabel || 'most recent';
+        html += ` <span style="color:#f59e0b;">(showing ${edgeCount} of ${totalAvailable} ${label})</span>`;
     }
     if (isLargeGraph) {
         html += ` <span style="color:#60a5fa;" title="Physics stabilized for performance">⚡</span>`;

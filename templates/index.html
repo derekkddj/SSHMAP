@@ -407,7 +407,8 @@
             background: #3a3c41;
         }
 
-        .filter-option input[type="checkbox"] {
+        .filter-option input[type="checkbox"],
+        .filter-option input[type="radio"] {
             cursor: pointer;
             width: 16px;
             height: 16px;
@@ -1147,6 +1148,17 @@
                         <input type="range" id="selectedNodeHopsSlider" min="0" max="10" value="0"
                                oninput="updateSelectedNodeHops(this.value)" class="connection-slider">
                         <span id="selectedNodeHopsValue" class="slider-value">All</span>
+                    </div>
+                    <div class="filter-subsection">
+                        <h5>Hop Edges</h5>
+                        <label class="filter-option">
+                            <input type="radio" name="hopEdgeMode" value="tree" checked onchange="updateHopEdgeMode(this.value)">
+                            <span>One path edge per node</span>
+                        </label>
+                        <label class="filter-option">
+                            <input type="radio" name="hopEdgeMode" value="all" onchange="updateHopEdgeMode(this.value)">
+                            <span>All relevant hop edges</span>
+                        </label>
                     </div>
                     <button class="btn btn-secondary" onclick="restoreFullGraph()" style="width: 100%; margin-top: 10px;">🔄 Reset</button>
                 </div>
