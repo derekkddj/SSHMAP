@@ -23,6 +23,10 @@ import os
 import sys
 from datetime import datetime
 
+
+DEFAULT_GRAPH_EDGE_LIMIT = 500
+MAX_GRAPH_EDGE_LIMIT = 5000
+
 # Determine the correct paths for templates and static files
 # Try multiple locations to find the files
 def find_resource_dir(dirname):
@@ -190,6 +194,66 @@ def _validate_import_payload(payload):
     return normalized_nodes, normalized_edges
 
 
+def _get_graph_edges(session, users, methods, limit, source_node_id=None, max_hops=1):
+    """Return a bounded set of relationships, optionally expanding from one host."""
+    edge_records = []
+    seen_edge_ids = set()
+    frontier = [source_node_id] if source_node_id is not None else None
+    hops = max(1, min(max_hops, 10))
+
+    for _ in range(hops if frontier is not None else 1):
+        remaining = limit - len(edge_records)
+        if remaining <= 0 or frontier == []:
+            break
+
+        conditions = []
+        if users:
+            conditions.append('r.user IN $users')
+        if methods:
+            conditions.append('r.method IN $methods')
+        if frontier is not None:
+            conditions.append('id(a) IN $source_ids')
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ''
+        result = session.run(
+            f"""
+                MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
+                {where_clause}
+                RETURN id(a) AS from_id, id(b) AS to_id, id(r) AS edge_id,
+                       a.hostname AS from_hostname, b.hostname AS to_hostname,
+                       r.user AS user, r.method AS method, r.creds AS creds,
+                       r.ip AS ip, r.port AS port, r.time AS time,
+                       coalesce(r.disabled, false) AS disabled
+                ORDER BY r.time DESC
+                LIMIT $query_limit
+            """,
+            users=users,
+            methods=methods,
+            source_ids=frontier or [],
+            query_limit=remaining + 1,
+        )
+
+        next_frontier = set()
+        overflow = False
+        for record in result:
+            edge_id = record['edge_id']
+            if edge_id in seen_edge_ids:
+                continue
+            if len(edge_records) >= limit:
+                overflow = True
+                break
+            seen_edge_ids.add(edge_id)
+            edge_records.append(record)
+            next_frontier.add(record['to_id'])
+
+        if overflow:
+            return edge_records, True
+        if frontier is None:
+            break
+        frontier = list(next_frontier)
+
+    return edge_records, len(edge_records) >= limit
+
+
 @app.route('/')
 def index():
     """Main page with graph visualization"""
@@ -199,12 +263,27 @@ def index():
 @app.route('/api/graph')
 def get_graph():
     """
-    Get all nodes and edges for visualization.
-    Returns JSON with nodes and edges arrays.
+    Get nodes, filter metadata, and a bounded relationship subset for visualization.
     """
     try:
-        # Get all hosts (nodes)
-        hosts = db.get_all_hosts_detailed()
+        users = [value for value in request.args.getlist('user') if value]
+        methods = [value for value in request.args.getlist('method') if value]
+        include_nodes = _parse_import_flag(request.args.get('include_nodes', 'true'))
+        include_metadata = _parse_import_flag(request.args.get('include_metadata', 'true'))
+        include_edges = _parse_import_flag(request.args.get('include_edges', 'true'))
+
+        try:
+            edge_limit = int(request.args.get('limit', DEFAULT_GRAPH_EDGE_LIMIT))
+            source_node_id = request.args.get('source_node_id')
+            source_node_id = int(source_node_id) if source_node_id not in (None, '') else None
+            max_hops = int(request.args.get('max_hops', 1))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Graph limit, source node ID, and hops must be integers'}), 400
+
+        edge_limit = max(1, min(edge_limit, MAX_GRAPH_EDGE_LIMIT))
+        max_hops = max(1, min(max_hops, 10))
+
+        hosts = db.get_all_hosts_detailed() if include_nodes else []
         nodes = []
         for host in hosts:
             hostname = html.escape(host['hostname'])
@@ -217,53 +296,68 @@ def get_graph():
                 'interfaces': interfaces,
                 'title': f"{hostname}<br>IPs: {interfaces_str}"
             })
-        # Get all SSH_ACCESS relationships (edges)
         edges = []
-        edge_ids = set()  # Track unique edges
+        total_edge_count = None
+        available_users = None
+        available_methods = None
+        truncated = False
 
         with db.driver.session() as session:
-            result = session.run("""
-                MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
-                RETURN id(a) AS from_id, id(b) AS to_id, id(r) AS edge_id,
-                       a.hostname AS from_hostname, b.hostname AS to_hostname,
-                       r.user AS user, r.method AS method, r.creds AS creds,
-                       r.ip AS ip, r.port AS port, r.time AS time,
-                       coalesce(r.disabled, false) AS disabled
-            """)
+            if include_metadata:
+                metadata = session.run("""
+                    MATCH ()-[r:SSH_ACCESS]->()
+                    RETURN count(r) AS edge_count,
+                           collect(DISTINCT r.user) AS users,
+                           collect(DISTINCT r.method) AS methods
+                """).single()
+                total_edge_count = metadata['edge_count'] if metadata else 0
+                available_users = sorted(value for value in (metadata['users'] if metadata else []) if value is not None)
+                available_methods = sorted(value for value in (metadata['methods'] if metadata else []) if value is not None)
 
-            for record in result:
-                edge_id = record['edge_id']
-                if edge_id not in edge_ids:
-                    edge_ids.add(edge_id)
-                    # Escape user input for HTML display
-                    user = html.escape(str(record['user']))
-                    ip = html.escape(str(record['ip']))
-                    method = html.escape(str(record['method']))
-                    from_hostname = html.escape(str(record['from_hostname']))
-                    to_hostname = html.escape(str(record['to_hostname']))
-                    creds = html.escape(str(record['creds']))
+            records = []
+            if include_edges:
+                records, truncated = _get_graph_edges(
+                    session, users, methods, edge_limit, source_node_id, max_hops
+                )
 
-                    edges.append({
-                        'id': edge_id,
-                        'from': record['from_id'],
-                        'to': record['to_id'],
-                        'from_hostname': from_hostname,
-                        'to_hostname': to_hostname,
-                        'user': user,
-                        'method': method,
-                        'creds': creds,
-                        'ip': ip,
-                        'port': record['port'],
-                        'time': record['time'],
-                        'disabled': record['disabled'],
-                        'title': f"{user}@{ip}:{record['port']}<br>Method: {method}",
-                        'label': f"{user}@{ip}"
-                    })
+            for record in records:
+                user = html.escape(str(record['user']))
+                ip = html.escape(str(record['ip']))
+                method = html.escape(str(record['method']))
+                from_hostname = html.escape(str(record['from_hostname']))
+                to_hostname = html.escape(str(record['to_hostname']))
+                creds = html.escape(str(record['creds']))
 
-        return jsonify({
+                edges.append({
+                    'id': record['edge_id'],
+                    'from': record['from_id'],
+                    'to': record['to_id'],
+                    'from_hostname': from_hostname,
+                    'to_hostname': to_hostname,
+                    'user': user,
+                    'method': method,
+                    'creds': creds,
+                    'ip': ip,
+                    'port': record['port'],
+                    'time': record['time'],
+                    'disabled': record['disabled'],
+                    'title': f"{user}@{ip}:{record['port']}<br>Method: {method}",
+                    'label': f"{user}@{ip}"
+                })
+
+        payload = {
             'nodes': nodes,
-            'edges': edges
-        })
+            'edges': edges,
+            'edge_limit': edge_limit,
+            'truncated': truncated,
+        }
+        if include_metadata:
+            payload.update({
+                'total_edge_count': total_edge_count,
+                'users': available_users,
+                'methods': available_methods,
+            })
+        return jsonify(payload)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -426,6 +520,7 @@ def search():
                        r.user AS user, r.method AS method, r.creds AS creds,
                        r.ip AS ip, r.port AS port,
                        coalesce(r.disabled, false) AS disabled
+                LIMIT 100
             """, search_query=query)
 
             for record in result:
@@ -475,6 +570,7 @@ def get_node(node_id):
                 RETURN id(r) AS edge_id, target.hostname AS target, r.user AS user,
                        r.method AS method, r.ip AS ip, r.port AS port,
                        coalesce(r.disabled, false) AS disabled
+                LIMIT 200
             """, node_id=node_id)
 
             # Get incoming connections
@@ -484,6 +580,7 @@ def get_node(node_id):
                 RETURN id(r) AS edge_id, source.hostname AS source, r.user AS user,
                        r.method AS method, r.ip AS ip, r.port AS port,
                        coalesce(r.disabled, false) AS disabled
+                LIMIT 200
             """, node_id=node_id)
 
             return jsonify({

@@ -60,16 +60,21 @@ def test_routes_registered():
 
 
 class _FakeResult:
-    def __init__(self, record=None):
+    def __init__(self, record=None, records=None):
         self._record = record
+        self._records = records or []
 
     def single(self):
         return self._record
 
+    def __iter__(self):
+        return iter(self._records)
+
 
 class _FakeSession:
-    def __init__(self):
+    def __init__(self, results=None):
         self.calls = []
+        self.results = list(results or [])
 
     def __enter__(self):
         return self
@@ -79,6 +84,8 @@ class _FakeSession:
 
     def run(self, query, **params):
         self.calls.append((query, params))
+        if self.results:
+            return self.results.pop(0)
         return _FakeResult()
 
 
@@ -91,8 +98,12 @@ class _FakeDriver:
 
 
 class _FakeDB:
-    def __init__(self, session):
+    def __init__(self, session, hosts=None):
         self.driver = _FakeDriver(session)
+        self.hosts = hosts or []
+
+    def get_all_hosts_detailed(self):
+        return self.hosts
 
 
 def test_import_endpoint_accepts_export_json(monkeypatch):
@@ -152,6 +163,69 @@ def test_import_endpoint_rejects_invalid_payload():
     body = response.get_json()
     assert body['success'] is False
     assert 'nodes and edges arrays' in body['error']
+
+
+def test_graph_endpoint_does_not_load_edges_without_filters(monkeypatch):
+    import web_app
+
+    metadata = {
+        'edge_count': 400000,
+        'users': ['root', 'admin'],
+        'methods': ['password', 'keyfile'],
+    }
+    fake_session = _FakeSession([_FakeResult(record=metadata)])
+    fake_db = _FakeDB(fake_session, hosts=[{
+        'id': 1,
+        'hostname': 'jumpbox',
+        'interfaces': ['10.0.0.10/24'],
+    }])
+    monkeypatch.setattr(web_app, 'db', fake_db)
+
+    response = web_app.app.test_client().get('/api/graph?include_edges=false')
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert len(body['nodes']) == 1
+    assert body['edges'] == []
+    assert body['total_edge_count'] == 400000
+    assert len(fake_session.calls) == 1
+
+
+def test_graph_endpoint_filters_and_caps_edges(monkeypatch):
+    import web_app
+
+    records = [
+        {
+            'from_id': 1,
+            'to_id': index + 2,
+            'edge_id': index + 10,
+            'from_hostname': 'jumpbox',
+            'to_hostname': f'target-{index}',
+            'user': 'root',
+            'method': 'password',
+            'creds': 'secret',
+            'ip': f'10.0.0.{index + 2}',
+            'port': 22,
+            'time': 1710000000000 + index,
+            'disabled': False,
+        }
+        for index in range(3)
+    ]
+    fake_session = _FakeSession([_FakeResult(records=records)])
+    monkeypatch.setattr(web_app, 'db', _FakeDB(fake_session))
+
+    response = web_app.app.test_client().get(
+        '/api/graph?include_nodes=false&include_metadata=false&user=root&method=password&limit=2'
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['nodes'] == []
+    assert len(body['edges']) == 2
+    assert body['truncated'] is True
+    assert fake_session.calls[0][1]['users'] == ['root']
+    assert fake_session.calls[0][1]['methods'] == ['password']
+    assert fake_session.calls[0][1]['query_limit'] == 3
 
 
 def test_templates_directory_exists():

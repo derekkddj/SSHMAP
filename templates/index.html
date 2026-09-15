@@ -1133,9 +1133,9 @@
                     </div>
                     <div class="filter-subsection">
                         <h5>🔗 Max Edges (most recent)</h5>
-                        <input type="range" id="maxEdgesSlider" min="0" max="3000" value="0" step="100"
+                        <input type="range" id="maxEdgesSlider" min="100" max="5000" value="500" step="100"
                                oninput="updateMaxEdges(this.value)" class="connection-slider">
-                        <span id="maxEdgesValue" class="slider-value">All</span>
+                        <span id="maxEdgesValue" class="slider-value">500</span>
                     </div>
                     <div class="filter-subsection">
                         <h5>🔗 Min Connections</h5>
@@ -1145,9 +1145,9 @@
                     </div>
                     <div class="filter-subsection">
                         <h5>🧭 Selected Node Hops</h5>
-                        <input type="range" id="selectedNodeHopsSlider" min="0" max="10" value="0"
+                        <input type="range" id="selectedNodeHopsSlider" min="0" max="10" value="1"
                                oninput="updateSelectedNodeHops(this.value)" class="connection-slider">
-                        <span id="selectedNodeHopsValue" class="slider-value">All</span>
+                        <span id="selectedNodeHopsValue" class="slider-value">1</span>
                     </div>
                     <div class="filter-subsection">
                         <h5>Hop Edges</h5>
@@ -1224,7 +1224,7 @@
                 <button class="toolbar-btn" onclick="network.fit()" title="Fit to view">
                     🔍 Fit
                 </button>
-                <button class="toolbar-btn" onclick="loadGraph()" title="Reload graph">
+                <button class="toolbar-btn" onclick="loadGraph(true)" title="Reload graph">
                     🔄 Reload
                 </button>
                 <button class="toolbar-btn" id="physicsToggleBtn" onclick="togglePhysics()" title="Toggle physics simulation">
