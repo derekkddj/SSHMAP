@@ -351,6 +351,7 @@ function loadGraph(refreshMetadata = false) {
         include_metadata: includeMetadata ? 'true' : 'false',
         include_nodes: includeNodes ? 'true' : 'false',
         include_edges: filterState.users.length > 0 && filterState.methods.length > 0 ? 'true' : 'false',
+        edge_mode: filterState.hopEdgeMode,
         limit: String(filterState.maxEdges || DEFAULT_EDGE_LIMIT)
     });
     if (filterState.users.length < uniqueUsers.size) {
@@ -393,6 +394,9 @@ function loadGraph(refreshMetadata = false) {
             }
 
             applyFilters();
+            if (selectedNodeId !== null && nodes.get(selectedNodeId)) {
+                network.selectNodes([selectedNodeId]);
+            }
             showLoading(false);
         })
         .catch(error => {
@@ -1417,7 +1421,11 @@ function updateSelectedNodeHops(value) {
 
 function updateHopEdgeMode(value) {
     filterState.hopEdgeMode = value || 'tree';
-    applyFilters();
+    if (selectedNodeId !== null) {
+        scheduleGraphLoad();
+    } else {
+        applyFilters();
+    }
 }
 
 // Show/hide loading indicator
@@ -1977,6 +1985,10 @@ function filterGraphBySearchResults(data) {
 // Select node from search popup
 function selectNodeFromSearch(nodeId) {
     document.getElementById('searchResults').style.display = 'none';
+    selectedNodeId = nodeId;
+    searchResultNodes = null;
+    searchResultEdges = null;
+    window.searchHighlightNodes = new Set([nodeId]);
     network.selectNodes([nodeId]);
     network.focus(nodeId, {
         scale: 1.5,
@@ -1986,6 +1998,9 @@ function selectNodeFromSearch(nodeId) {
         }
     });
     loadNodeDetails(nodeId);
+    if (filterState.selectedNodeHops > 0) {
+        scheduleGraphLoad();
+    }
 }
 
 // Select edge from search popup

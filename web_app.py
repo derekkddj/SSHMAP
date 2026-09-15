@@ -194,11 +194,15 @@ def _validate_import_payload(payload):
     return normalized_nodes, normalized_edges
 
 
-def _get_graph_edges(session, users, methods, limit, source_node_id=None, max_hops=1):
+def _get_graph_edges(
+    session, users, methods, limit, source_node_id=None, max_hops=1,
+    edge_mode='tree'
+):
     """Return a bounded set of relationships, optionally expanding from one host."""
     edge_records = []
     seen_edge_ids = set()
     frontier = [source_node_id] if source_node_id is not None else None
+    visited_node_ids = {source_node_id} if source_node_id is not None else set()
     hops = max(1, min(max_hops, 10))
 
     for _ in range(hops if frontier is not None else 1):
@@ -213,11 +217,21 @@ def _get_graph_edges(session, users, methods, limit, source_node_id=None, max_ho
             conditions.append('r.method IN $methods')
         if frontier is not None:
             conditions.append('id(a) IN $source_ids')
+        tree_mode = frontier is not None and edge_mode == 'tree'
+        if tree_mode:
+            conditions.append('NOT id(b) IN $visited_node_ids')
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ''
+        tree_projection = """
+                WITH a, b, r
+                ORDER BY coalesce(r.disabled, false) ASC, r.time DESC
+                WITH b, head(collect({source: a, relationship: r})) AS selected
+                WITH selected.source AS a, selected.relationship AS r, b
+        """ if tree_mode else ''
         result = session.run(
             f"""
                 MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
                 {where_clause}
+                {tree_projection}
                 RETURN id(a) AS from_id, id(b) AS to_id, id(r) AS edge_id,
                        a.hostname AS from_hostname, b.hostname AS to_hostname,
                        r.user AS user, r.method AS method, r.creds AS creds,
@@ -229,6 +243,7 @@ def _get_graph_edges(session, users, methods, limit, source_node_id=None, max_ho
             users=users,
             methods=methods,
             source_ids=frontier or [],
+            visited_node_ids=list(visited_node_ids),
             query_limit=remaining + 1,
         )
 
@@ -249,6 +264,7 @@ def _get_graph_edges(session, users, methods, limit, source_node_id=None, max_ho
             return edge_records, True
         if frontier is None:
             break
+        visited_node_ids.update(next_frontier)
         frontier = list(next_frontier)
 
     return edge_records, len(edge_records) >= limit
@@ -282,6 +298,9 @@ def get_graph():
 
         edge_limit = max(1, min(edge_limit, MAX_GRAPH_EDGE_LIMIT))
         max_hops = max(1, min(max_hops, 10))
+        edge_mode = request.args.get('edge_mode', 'tree')
+        if edge_mode not in {'tree', 'all'}:
+            return jsonify({'error': 'Graph edge mode must be tree or all'}), 400
 
         hosts = db.get_all_hosts_detailed() if include_nodes else []
         nodes = []
@@ -317,7 +336,8 @@ def get_graph():
             records = []
             if include_edges:
                 records, truncated = _get_graph_edges(
-                    session, users, methods, edge_limit, source_node_id, max_hops
+                    session, users, methods, edge_limit, source_node_id, max_hops,
+                    edge_mode
                 )
 
             for record in records:

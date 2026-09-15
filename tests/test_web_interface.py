@@ -215,7 +215,8 @@ def test_graph_endpoint_filters_and_caps_edges(monkeypatch):
     monkeypatch.setattr(web_app, 'db', _FakeDB(fake_session))
 
     response = web_app.app.test_client().get(
-        '/api/graph?include_nodes=false&include_metadata=false&user=root&method=password&limit=2'
+        '/api/graph?include_nodes=false&include_metadata=false&user=root&method=password'
+        '&source_node_id=1&max_hops=1&edge_mode=tree&limit=2'
     )
 
     assert response.status_code == 200
@@ -226,6 +227,8 @@ def test_graph_endpoint_filters_and_caps_edges(monkeypatch):
     assert fake_session.calls[0][1]['users'] == ['root']
     assert fake_session.calls[0][1]['methods'] == ['password']
     assert fake_session.calls[0][1]['query_limit'] == 3
+    assert fake_session.calls[0][1]['visited_node_ids'] == [1]
+    assert 'head(collect' in fake_session.calls[0][0]
 
 
 def test_templates_directory_exists():
