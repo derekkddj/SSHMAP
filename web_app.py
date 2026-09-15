@@ -26,6 +26,8 @@ from datetime import datetime
 
 DEFAULT_GRAPH_EDGE_LIMIT = 500
 MAX_GRAPH_EDGE_LIMIT = 5000
+DEFAULT_GRAPH_NODE_LIMIT = 500
+MAX_GRAPH_NODE_LIMIT = 5000
 
 # Determine the correct paths for templates and static files
 # Try multiple locations to find the files
@@ -195,19 +197,21 @@ def _validate_import_payload(payload):
 
 
 def _get_graph_edges(
-    session, users, methods, limit, source_node_id=None, max_hops=1,
-    edge_mode='tree'
+    session, users, methods, edge_limit, node_limit, source_node_id=None,
+    max_hops=1, edge_mode='tree'
 ):
     """Return a bounded set of relationships, optionally expanding from one host."""
     edge_records = []
     seen_edge_ids = set()
     frontier = [source_node_id] if source_node_id is not None else None
     visited_node_ids = {source_node_id} if source_node_id is not None else set()
+    discovered_node_ids = set(visited_node_ids)
     hops = max(1, min(max_hops, 10))
 
     for _ in range(hops if frontier is not None else 1):
-        remaining = limit - len(edge_records)
-        if remaining <= 0 or frontier == []:
+        remaining_edges = edge_limit - len(edge_records)
+        remaining_nodes = node_limit - len(discovered_node_ids)
+        if remaining_edges <= 0 or remaining_nodes <= 0 or frontier == []:
             break
 
         conditions = []
@@ -227,6 +231,9 @@ def _get_graph_edges(
                 WITH b, head(collect({source: a, relationship: r})) AS selected
                 WITH selected.source AS a, selected.relationship AS r, b
         """ if tree_mode else ''
+        query_limit = remaining_edges + 1
+        if tree_mode:
+            query_limit = min(remaining_edges, remaining_nodes) + 1
         result = session.run(
             f"""
                 MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
@@ -244,7 +251,7 @@ def _get_graph_edges(
             methods=methods,
             source_ids=frontier or [],
             visited_node_ids=list(visited_node_ids),
-            query_limit=remaining + 1,
+            query_limit=query_limit,
         )
 
         next_frontier = set()
@@ -253,11 +260,14 @@ def _get_graph_edges(
             edge_id = record['edge_id']
             if edge_id in seen_edge_ids:
                 continue
-            if len(edge_records) >= limit:
+            new_node_ids = {record['from_id'], record['to_id']} - discovered_node_ids
+            if (len(edge_records) >= edge_limit or
+                    len(discovered_node_ids) + len(new_node_ids) > node_limit):
                 overflow = True
                 break
             seen_edge_ids.add(edge_id)
             edge_records.append(record)
+            discovered_node_ids.update(new_node_ids)
             next_frontier.add(record['to_id'])
 
         if overflow:
@@ -267,7 +277,9 @@ def _get_graph_edges(
         visited_node_ids.update(next_frontier)
         frontier = list(next_frontier)
 
-    return edge_records, len(edge_records) >= limit
+    truncated = (len(edge_records) >= edge_limit or
+                 len(discovered_node_ids) >= node_limit)
+    return edge_records, truncated
 
 
 @app.route('/')
@@ -290,13 +302,17 @@ def get_graph():
 
         try:
             edge_limit = int(request.args.get('limit', DEFAULT_GRAPH_EDGE_LIMIT))
+            node_limit = int(request.args.get('node_limit', DEFAULT_GRAPH_NODE_LIMIT))
             source_node_id = request.args.get('source_node_id')
             source_node_id = int(source_node_id) if source_node_id not in (None, '') else None
             max_hops = int(request.args.get('max_hops', 1))
         except (TypeError, ValueError):
-            return jsonify({'error': 'Graph limit, source node ID, and hops must be integers'}), 400
+            return jsonify({
+                'error': 'Graph node/edge limits, source node ID, and hops must be integers'
+            }), 400
 
         edge_limit = max(1, min(edge_limit, MAX_GRAPH_EDGE_LIMIT))
+        node_limit = max(2, min(node_limit, MAX_GRAPH_NODE_LIMIT))
         max_hops = max(1, min(max_hops, 10))
         edge_mode = request.args.get('edge_mode', 'tree')
         if edge_mode not in {'tree', 'all'}:
@@ -324,11 +340,14 @@ def get_graph():
         with db.driver.session() as session:
             if include_metadata:
                 metadata = session.run("""
-                    MATCH ()-[r:SSH_ACCESS]->()
-                    RETURN count(r) AS edge_count,
+                    MATCH (h:Host)
+                    WITH count(h) AS node_count
+                    OPTIONAL MATCH ()-[r:SSH_ACCESS]->()
+                    RETURN node_count, count(r) AS edge_count,
                            collect(DISTINCT r.user) AS users,
                            collect(DISTINCT r.method) AS methods
                 """).single()
+                total_node_count = metadata['node_count'] if metadata else 0
                 total_edge_count = metadata['edge_count'] if metadata else 0
                 available_users = sorted(value for value in (metadata['users'] if metadata else []) if value is not None)
                 available_methods = sorted(value for value in (metadata['methods'] if metadata else []) if value is not None)
@@ -336,8 +355,8 @@ def get_graph():
             records = []
             if include_edges:
                 records, truncated = _get_graph_edges(
-                    session, users, methods, edge_limit, source_node_id, max_hops,
-                    edge_mode
+                    session, users, methods, edge_limit, node_limit,
+                    source_node_id, max_hops, edge_mode
                 )
 
             for record in records:
@@ -369,10 +388,12 @@ def get_graph():
             'nodes': nodes,
             'edges': edges,
             'edge_limit': edge_limit,
+            'node_limit': node_limit,
             'truncated': truncated,
         }
         if include_metadata:
             payload.update({
+                'total_node_count': total_node_count,
                 'total_edge_count': total_edge_count,
                 'users': available_users,
                 'methods': available_methods,

@@ -1132,6 +1132,12 @@
                         <div id="methodFilters" class="filter-options"></div>
                     </div>
                     <div class="filter-subsection">
+                        <h5>🖥️ Max Nodes</h5>
+                        <input type="range" id="maxNodesSlider" min="10" max="5000" value="500" step="10"
+                               oninput="updateMaxNodes(this.value)" class="connection-slider">
+                        <span id="maxNodesValue" class="slider-value">500</span>
+                    </div>
+                    <div class="filter-subsection">
                         <h5>🔗 Max Edges (most recent)</h5>
                         <input type="range" id="maxEdgesSlider" min="100" max="5000" value="500" step="100"
                                oninput="updateMaxEdges(this.value)" class="connection-slider">

@@ -5,7 +5,9 @@ let edges = new vis.DataSet([]);
 let allNodes = [];
 let allEdges = [];
 const DEFAULT_EDGE_LIMIT = 500;
+const DEFAULT_NODE_LIMIT = 500;
 const PHYSICS_EDGE_LIMIT = 250;
+let totalDatabaseNodeCount = 0;
 let totalDatabaseEdgeCount = 0;
 let graphMetadataLoaded = false;
 let serverEdgesTruncated = false;
@@ -14,6 +16,7 @@ let isPathView = false;
 let filterState = {
     users: [],
     methods: [],
+    maxNodes: DEFAULT_NODE_LIMIT,
     maxEdges: DEFAULT_EDGE_LIMIT,
     minConnections: 0,
     selectedNodeHops: 1,
@@ -355,6 +358,7 @@ function loadGraph(refreshMetadata = false) {
         include_nodes: includeNodes ? 'true' : 'false',
         include_edges: filterState.users.length > 0 && filterState.methods.length > 0 ? 'true' : 'false',
         edge_mode: filterState.hopEdgeMode,
+        node_limit: String(filterState.maxNodes || DEFAULT_NODE_LIMIT),
         limit: String(filterState.maxEdges || DEFAULT_EDGE_LIMIT)
     });
     if (filterState.users.length < uniqueUsers.size) {
@@ -389,6 +393,7 @@ function loadGraph(refreshMetadata = false) {
             serverEdgesTruncated = Boolean(data.truncated);
 
             if (includeMetadata) {
+                totalDatabaseNodeCount = data.total_node_count || 0;
                 totalDatabaseEdgeCount = data.total_edge_count || 0;
                 uniqueUsers = new Set(data.users || []);
                 uniqueMethods = new Set(data.methods || []);
@@ -977,6 +982,7 @@ function restoreFullGraph() {
     filterState = {
         users: Array.from(uniqueUsers),
         methods: Array.from(uniqueMethods),
+        maxNodes: DEFAULT_NODE_LIMIT,
         maxEdges: DEFAULT_EDGE_LIMIT,
         minConnections: 0,
         selectedNodeHops: 0,
@@ -986,6 +992,11 @@ function restoreFullGraph() {
 
     // Reset filter UI
     document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = true);
+    const maxNodesSlider = document.getElementById('maxNodesSlider');
+    if (maxNodesSlider) {
+        maxNodesSlider.value = DEFAULT_NODE_LIMIT;
+        document.getElementById('maxNodesValue').textContent = String(DEFAULT_NODE_LIMIT);
+    }
     const maxEdgesSlider = document.getElementById('maxEdgesSlider');
     if (maxEdgesSlider) {
         maxEdgesSlider.value = DEFAULT_EDGE_LIMIT;
@@ -1083,6 +1094,7 @@ function onFilterChange() {
     // Update filter state
     filterState.users = Array.from(document.querySelectorAll('.filter-checkbox[data-type="user"]:checked')).map(cb => cb.value);
     filterState.methods = Array.from(document.querySelectorAll('.filter-checkbox[data-type="method"]:checked')).map(cb => cb.value);
+    filterState.maxNodes = parseInt(document.getElementById('maxNodesSlider').value) || DEFAULT_NODE_LIMIT;
     filterState.maxEdges = parseInt(document.getElementById('maxEdgesSlider').value) || 0;
     filterState.minConnections = parseInt(document.getElementById('minConnectionsSlider').value) || 0;
     filterState.selectedNodeHops = parseInt(document.getElementById('selectedNodeHopsSlider').value) || 0;
@@ -1396,6 +1408,14 @@ function toggleFilters() {
     }
 }
 
+// Update max nodes filter
+function updateMaxNodes(value) {
+    const parsedValue = parseInt(value) || DEFAULT_NODE_LIMIT;
+    document.getElementById('maxNodesValue').textContent = String(parsedValue);
+    filterState.maxNodes = parsedValue;
+    scheduleGraphLoad();
+}
+
 // Update max edges filter
 function updateMaxEdges(value) {
     const parsedValue = parseInt(value) || DEFAULT_EDGE_LIMIT;
@@ -1440,7 +1460,7 @@ function showLoading(show) {
 // Update statistics
 function updateStats(nodeCount, edgeCount, totalAvailable, isLargeGraph, totalAvailableLabel) {
     // Update total database counts (from allNodes/allEdges)
-    document.getElementById('totalNodeCount').textContent = allNodes.length;
+    document.getElementById('totalNodeCount').textContent = totalDatabaseNodeCount;
     document.getElementById('totalEdgeCount').textContent = totalDatabaseEdgeCount;
     
     updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph, totalAvailableLabel);
@@ -1452,7 +1472,7 @@ function updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph, t
     if (!status) {
         return;
     }
-    let html = `<strong>${nodeCount}</strong> nodes • <strong>${edgeCount}</strong> edges`;
+    let html = `<strong>${nodeCount}</strong> visible nodes • <strong>${edgeCount}</strong> visible edges`;
     if (totalAvailable && totalAvailable > edgeCount) {
         const label = totalAvailableLabel || 'most recent';
         html += ` <span style="color:#f59e0b;">(showing ${edgeCount} of ${totalAvailable} ${label})</span>`;
@@ -1461,7 +1481,7 @@ function updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph, t
         html += ` <span style="color:#60a5fa;" title="Physics stabilized for performance">⚡</span>`;
     }
     if (serverEdgesTruncated) {
-        html += ` <span style="color:#f59e0b;">(limited to ${filterState.maxEdges}; narrow filters)</span>`;
+        html += ` <span style="color:#f59e0b;">(limited by node/edge settings)</span>`;
     }
     status.innerHTML = html;
 }

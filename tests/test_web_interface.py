@@ -169,6 +169,7 @@ def test_graph_endpoint_does_not_load_edges_without_filters(monkeypatch):
     import web_app
 
     metadata = {
+        'node_count': 161,
         'edge_count': 400000,
         'users': ['root', 'admin'],
         'methods': ['password', 'keyfile'],
@@ -187,6 +188,7 @@ def test_graph_endpoint_does_not_load_edges_without_filters(monkeypatch):
     body = response.get_json()
     assert len(body['nodes']) == 1
     assert body['edges'] == []
+    assert body['total_node_count'] == 161
     assert body['total_edge_count'] == 400000
     assert len(fake_session.calls) == 1
 
@@ -216,13 +218,14 @@ def test_graph_endpoint_filters_and_caps_edges(monkeypatch):
 
     response = web_app.app.test_client().get(
         '/api/graph?include_nodes=false&include_metadata=false&user=root&method=password'
-        '&source_node_id=1&max_hops=1&edge_mode=tree&limit=2'
+        '&source_node_id=1&max_hops=1&edge_mode=tree&node_limit=3&limit=2'
     )
 
     assert response.status_code == 200
     body = response.get_json()
     assert body['nodes'] == []
     assert len(body['edges']) == 2
+    assert body['node_limit'] == 3
     assert body['truncated'] is True
     assert fake_session.calls[0][1]['users'] == ['root']
     assert fake_session.calls[0][1]['methods'] == ['password']
