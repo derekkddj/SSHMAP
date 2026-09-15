@@ -90,8 +90,11 @@ function bindNetworkEvents(container) {
         }
     });
 
-    network.on('deselectNode', function() {
+    network.on('deselectNode', function(params) {
         if (isProgrammaticGraphUpdate) {
+            return;
+        }
+        if ((params.edges && params.edges.length > 0) || network.getSelectedEdges().length > 0) {
             return;
         }
         const hadSelection = selectedNodeId !== null;
@@ -2085,13 +2088,6 @@ function focusOnHostname(hostname) {
 function focusOnEdge(edgeId) {
     const edge = allEdges.find(e => e.id === edgeId);
     if (edge) {
-        network.fit({
-            nodes: [edge.from, edge.to],
-            animation: {
-                duration: 1000,
-                easingFunction: 'easeInOutQuad'
-            }
-        });
         network.selectEdges([edgeId]);
         loadEdgeDetails(edgeId);
     } else {
