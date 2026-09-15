@@ -7,8 +7,12 @@ let allEdges = [];
 const DEFAULT_EDGE_LIMIT = 500;
 const DEFAULT_NODE_LIMIT = 500;
 const PHYSICS_EDGE_LIMIT = 250;
+const PHYSICS_NODE_LIMIT = 500;
+const LARGE_RENDER_NODE_LIMIT = 1000;
 let totalDatabaseNodeCount = 0;
 let totalDatabaseEdgeCount = 0;
+let matchedNodeCount = 0;
+let matchedEdgeCount = 0;
 let graphMetadataLoaded = false;
 let serverEdgesTruncated = false;
 let currentLayout = 'force';
@@ -30,6 +34,7 @@ let pathSuggestionsPopup = null;
 let activePathInputId = null;
 let selectedNodeId = null;
 let physicsEnabled = true;
+let physicsBlockedForSize = false;
 let physicsManualOverride = null; // null = auto, true = force on, false = force off
 let searchResultNodes = null;
 let searchResultEdges = null;
@@ -131,6 +136,8 @@ function bindNetworkEvents(container) {
 
 // Get layout options based on selected layout type
 function getLayoutOptions(layoutType) {
+    const largeLayout = nodes.length > PHYSICS_NODE_LIMIT || edges.length > PHYSICS_EDGE_LIMIT;
+    const allowPhysics = !largeLayout || physicsManualOverride === true;
     const baseOptions = {
         nodes: {
             shape: 'dot',
@@ -214,16 +221,16 @@ function getLayoutOptions(layoutType) {
                         enabled: true,
                         direction: 'LR',
                         sortMethod: 'directed',
-                        levelSeparation: 250,
-                        nodeSpacing: 180,
-                        treeSpacing: 250,
+                        levelSeparation: largeLayout ? 400 : 250,
+                        nodeSpacing: largeLayout ? 300 : 180,
+                        treeSpacing: largeLayout ? 500 : 250,
                         blockShifting: true,
                         edgeMinimization: true,
                         parentCentralization: true
                     }
                 },
                 physics: {
-                    enabled: true,
+                    enabled: allowPhysics,
                     hierarchicalRepulsion: {
                         centralGravity: 0.0,
                         springLength: 200,
@@ -252,16 +259,16 @@ function getLayoutOptions(layoutType) {
                         enabled: true,
                         direction: 'UD',
                         sortMethod: 'directed',
-                        levelSeparation: 200,
-                        nodeSpacing: 220,
-                        treeSpacing: 250,
+                        levelSeparation: largeLayout ? 350 : 200,
+                        nodeSpacing: largeLayout ? 320 : 220,
+                        treeSpacing: largeLayout ? 500 : 250,
                         blockShifting: true,
                         edgeMinimization: true,
                         parentCentralization: true
                     }
                 },
                 physics: {
-                    enabled: true,
+                    enabled: allowPhysics,
                     hierarchicalRepulsion: {
                         centralGravity: 0.0,
                         springLength: 200,
@@ -289,7 +296,7 @@ function getLayoutOptions(layoutType) {
                     randomSeed: 2
                 },
                 physics: {
-                    enabled: true,
+                    enabled: allowPhysics,
                     stabilization: { 
                         enabled: true,
                         iterations: 500 
@@ -311,7 +318,7 @@ function getLayoutOptions(layoutType) {
             // Check current visible edges, not all edges
             const visibleEdges = edges.get();
             const edgeCount = visibleEdges.length || 0;
-            const isLarge = edgeCount > PHYSICS_EDGE_LIMIT;
+            const isLarge = largeLayout || edgeCount > PHYSICS_EDGE_LIMIT;
             
             return {
                 ...baseOptions,
@@ -319,7 +326,7 @@ function getLayoutOptions(layoutType) {
                     randomSeed: 2
                 },
                 physics: {
-                    enabled: true, // Always start with physics enabled for initial layout
+                    enabled: !isLarge || physicsManualOverride === true,
                     stabilization: {
                         enabled: true,
                         iterations: isLarge ? 50 : 400, // Fewer iterations for large graphs
@@ -391,6 +398,12 @@ function loadGraph(refreshMetadata = false) {
             }
             allEdges = Array.isArray(data.edges) ? data.edges : [];
             serverEdgesTruncated = Boolean(data.truncated);
+            matchedNodeCount = Number.isInteger(data.matched_node_count)
+                ? data.matched_node_count
+                : allNodes.length;
+            matchedEdgeCount = Number.isInteger(data.matched_edge_count)
+                ? data.matched_edge_count
+                : allEdges.length;
 
             if (includeMetadata) {
                 totalDatabaseNodeCount = data.total_node_count || 0;
@@ -933,7 +946,10 @@ function changeLayout(layoutType) {
 
     // For large graphs, disable physics immediately
     const visibleEdges = edges.get();
-    if (visibleEdges.length > PHYSICS_EDGE_LIMIT) {
+    const largeGraph = nodes.length > PHYSICS_NODE_LIMIT ||
+        visibleEdges.length > PHYSICS_EDGE_LIMIT;
+    physicsBlockedForSize = largeGraph;
+    if (largeGraph && physicsManualOverride !== true) {
         network.setOptions({ 
             physics: { enabled: false },
             interaction: {
@@ -947,30 +963,45 @@ function changeLayout(layoutType) {
     } else {
         physicsEnabled = true;
     }
+    updatePhysicsButton();
 
-    // Wait for stabilization then fit and hide loading
-    network.once('stabilizationIterationsDone', function() {
-        setTimeout(() => {
-            network.fit({
-                animation: {
-                    duration: 500,
-                    easingFunction: 'easeInOutQuad'
-                }
-            });
-            showLoading(false);
-        }, 100);
-    });
-    
-    // Fallback in case stabilization doesn't trigger
-    setTimeout(() => {
+    let layoutFinished = false;
+    const finishLayout = function() {
+        if (layoutFinished) {
+            return;
+        }
+        layoutFinished = true;
+        fitCurrentGraph();
         showLoading(false);
-        network.fit({
-            animation: {
-                duration: 500,
-                easingFunction: 'easeInOutQuad'
-            }
+    };
+
+    if (largeGraph) {
+        requestAnimationFrame(finishLayout);
+    } else {
+        network.once('stabilizationIterationsDone', finishLayout);
+    }
+    setTimeout(finishLayout, 3000);
+}
+
+function fitCurrentGraph() {
+    const largeGraph = nodes.length > LARGE_RENDER_NODE_LIMIT ||
+        edges.length > PHYSICS_EDGE_LIMIT;
+    const largeHierarchy = currentLayout.startsWith('hierarchical') &&
+        nodes.length > PHYSICS_NODE_LIMIT;
+    network.fit({
+        animation: largeGraph ? false : {
+            duration: 500,
+            easingFunction: 'easeInOutQuad'
+        }
+    });
+    if (largeHierarchy) {
+        requestAnimationFrame(() => {
+            network.moveTo({
+                scale: Math.min(Math.max(network.getScale() * 4, 0.2), 0.8),
+                animation: false
+            });
         });
-    }, 3000);
+    }
 }
 
 // Restore full graph view
@@ -1023,6 +1054,17 @@ function restoreFullGraph() {
 
 // Toggle physics manually
 function togglePhysics() {
+    if (physicsBlockedForSize && physicsManualOverride !== true) {
+        const confirmed = confirm(
+            'Physics can make large graphs unresponsive. Force physics on anyway?'
+        );
+        if (!confirmed) {
+            return;
+        }
+        physicsManualOverride = true;
+        applyFilters();
+        return;
+    }
     if (physicsManualOverride === null) {
         // Currently auto, switch to force off
         physicsManualOverride = false;
@@ -1041,6 +1083,14 @@ function togglePhysics() {
 function updatePhysicsButton() {
     const btn = document.getElementById('physicsToggleBtn');
     if (!btn) return;
+
+    if (physicsBlockedForSize && physicsManualOverride !== true) {
+        btn.textContent = '⚡ Physics: Off (large graph)';
+        btn.title = 'Physics is disabled for performance. Click to force it on.';
+        btn.disabled = false;
+        return;
+    }
+    btn.disabled = false;
     
     if (physicsManualOverride === null) {
         btn.textContent = physicsEnabled ? '⚡ Physics: Auto (On)' : '⚡ Physics: Auto (Off)';
@@ -1191,7 +1241,9 @@ function applyFilters() {
     );
 
     // Apply BloodHound-style colors based on node role
-    const isLargeGraph = filteredEdges.length > PHYSICS_EDGE_LIMIT;
+    const isLargeGraph = filteredEdges.length > PHYSICS_EDGE_LIMIT ||
+        filteredNodes.length > PHYSICS_NODE_LIMIT;
+    const isVeryLargeGraph = filteredNodes.length > LARGE_RENDER_NODE_LIMIT;
     filteredNodes = filteredNodes.map(node => {
         const incoming = incomingCount[node.id] || 0;
         const outgoing = outgoingCount[node.id] || 0;
@@ -1209,6 +1261,7 @@ function applyFilters() {
 
         return {
             ...node,
+            label: isVeryLargeGraph ? '' : node.label,
             color: color,
             title: `${node.hostname}\nIPs: ${node.interfaces.join(', ')}\nIncoming: ${incoming}, Outgoing: ${outgoing}`
         };
@@ -1226,6 +1279,9 @@ function applyFilters() {
             ...edge,
             title: `${edge.user}@${edge.ip}:${edge.port}\nMethod: ${edge.method}\nCreds: ${edge.creds}\nStatus: ${edge.disabled ? 'Disabled' : 'Enabled'}`
         };
+        if (isLargeGraph) {
+            edgeData.smooth = false;
+        }
         if (edge.disabled) {
             edgeData.dashes = true;
             edgeData.color = { color: '#ef4444', highlight: '#f97316', hover: '#f97316' };
@@ -1253,6 +1309,12 @@ function applyFilters() {
         });
     }
 
+    physicsBlockedForSize = isLargeGraph;
+    if (physicsBlockedForSize && physicsManualOverride !== true && physicsEnabled) {
+        network.setOptions({ physics: { enabled: false } });
+        physicsEnabled = false;
+    }
+
     // Update graph
     isProgrammaticGraphUpdate = true;
     try {
@@ -1268,9 +1330,10 @@ function applyFilters() {
     updateStats(filteredNodes.length, filteredEdges.length, totalAvailable, isLargeGraph, totalAvailableLabel);
 
     // Handle physics based on manual override or graph size
-    const shouldEnablePhysics = physicsManualOverride !== null
-        ? physicsManualOverride
-        : filteredEdges.length > 0 && !isLargeGraph;
+    const shouldEnablePhysics = physicsManualOverride === true || (
+        !physicsBlockedForSize && physicsManualOverride !== false &&
+        filteredEdges.length > 0
+    );
     
     if (shouldEnablePhysics && !physicsEnabled) {
         // Enable physics
@@ -1304,12 +1367,7 @@ function applyFilters() {
     if (hopSourceNodeId === null) {
         clearTimeout(graphFitTimeout);
         graphFitTimeout = setTimeout(() => {
-            network.fit({
-                animation: {
-                    duration: 500,
-                    easingFunction: 'easeInOutQuad'
-                }
-            });
+            fitCurrentGraph();
         }, 100);
     }
 }
@@ -1472,8 +1530,14 @@ function updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph, t
     if (!status) {
         return;
     }
-    let html = `<strong>${nodeCount}</strong> visible nodes • <strong>${edgeCount}</strong> visible edges`;
-    if (totalAvailable && totalAvailable > edgeCount) {
+    let html;
+    if (serverEdgesTruncated) {
+        html = `<strong>${nodeCount}</strong> of <strong>${matchedNodeCount}</strong> matching nodes • ` +
+            `<strong>${edgeCount}</strong> of <strong>${matchedEdgeCount}</strong> matching edges`;
+    } else {
+        html = `<strong>${nodeCount}</strong> visible nodes • <strong>${edgeCount}</strong> visible edges`;
+    }
+    if (!serverEdgesTruncated && totalAvailable && totalAvailable > edgeCount) {
         const label = totalAvailableLabel || 'most recent';
         html += ` <span style="color:#f59e0b;">(showing ${edgeCount} of ${totalAvailable} ${label})</span>`;
     }
@@ -1481,7 +1545,7 @@ function updateGraphStatus(nodeCount, edgeCount, totalAvailable, isLargeGraph, t
         html += ` <span style="color:#60a5fa;" title="Physics stabilized for performance">⚡</span>`;
     }
     if (serverEdgesTruncated) {
-        html += ` <span style="color:#f59e0b;">(limited by node/edge settings)</span>`;
+        html += ` <span style="color:#f59e0b;">(limited)</span>`;
     }
     status.innerHTML = html;
 }
@@ -1835,7 +1899,7 @@ function setupEventListeners() {
         }
 
         if (key === 'f' && network) {
-            network.fit();
+            fitCurrentGraph();
             return;
         }
 

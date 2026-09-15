@@ -282,6 +282,75 @@ def _get_graph_edges(
     return edge_records, truncated
 
 
+def _get_graph_match_counts(
+    session, users, methods, source_node_id=None, max_hops=1,
+    edge_mode='tree'
+):
+    """Count matching nodes and edges before display limits are applied."""
+    conditions = []
+    if users:
+        conditions.append('r.user IN $users')
+    if methods:
+        conditions.append('r.method IN $methods')
+
+    if source_node_id is None:
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ''
+        record = session.run(
+            f"""
+                MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
+                {where_clause}
+                WITH count(r) AS edge_count,
+                     collect(DISTINCT id(a)) + collect(DISTINCT id(b)) AS node_ids
+                UNWIND CASE WHEN node_ids = [] THEN [null] ELSE node_ids END AS node_id
+                RETURN max(edge_count) AS edge_count,
+                       count(DISTINCT node_id) AS node_count
+            """,
+            users=users,
+            methods=methods,
+        ).single()
+        return (
+            record['node_count'] if record else 0,
+            record['edge_count'] if record else 0,
+        )
+
+    visited_node_ids = {source_node_id}
+    frontier = [source_node_id]
+    matched_edge_count = 0
+
+    for _ in range(max(1, min(max_hops, 10))):
+        layer_conditions = conditions + [
+            'id(a) IN $source_ids',
+            'NOT id(b) IN $visited_node_ids',
+        ]
+        result = session.run(
+            f"""
+                MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
+                WHERE {' AND '.join(layer_conditions)}
+                RETURN id(b) AS node_id, count(r) AS edge_count
+            """,
+            users=users,
+            methods=methods,
+            source_ids=frontier,
+            visited_node_ids=list(visited_node_ids),
+        )
+
+        next_frontier = set()
+        layer_edge_count = 0
+        for record in result:
+            next_frontier.add(record['node_id'])
+            layer_edge_count += record['edge_count']
+
+        if not next_frontier:
+            break
+        matched_edge_count += (
+            len(next_frontier) if edge_mode == 'tree' else layer_edge_count
+        )
+        visited_node_ids.update(next_frontier)
+        frontier = list(next_frontier)
+
+    return len(visited_node_ids), matched_edge_count
+
+
 @app.route('/')
 def index():
     """Main page with graph visualization"""
@@ -335,6 +404,8 @@ def get_graph():
         total_edge_count = None
         available_users = None
         available_methods = None
+        matched_node_count = None
+        matched_edge_count = None
         truncated = False
 
         with db.driver.session() as session:
@@ -354,10 +425,22 @@ def get_graph():
 
             records = []
             if include_edges:
+                if (include_metadata and not users and not methods and
+                        source_node_id is None):
+                    matched_node_count = total_node_count
+                    matched_edge_count = total_edge_count
+                else:
+                    matched_node_count, matched_edge_count = _get_graph_match_counts(
+                        session, users, methods, source_node_id, max_hops,
+                        edge_mode
+                    )
                 records, truncated = _get_graph_edges(
                     session, users, methods, edge_limit, node_limit,
                     source_node_id, max_hops, edge_mode
                 )
+            elif include_metadata:
+                matched_node_count = total_node_count
+                matched_edge_count = 0
 
             for record in records:
                 user = html.escape(str(record['user']))
@@ -389,6 +472,8 @@ def get_graph():
             'edges': edges,
             'edge_limit': edge_limit,
             'node_limit': node_limit,
+            'matched_node_count': matched_node_count,
+            'matched_edge_count': matched_edge_count,
             'truncated': truncated,
         }
         if include_metadata:

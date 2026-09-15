@@ -190,6 +190,8 @@ def test_graph_endpoint_does_not_load_edges_without_filters(monkeypatch):
     assert body['edges'] == []
     assert body['total_node_count'] == 161
     assert body['total_edge_count'] == 400000
+    assert body['matched_node_count'] == 161
+    assert body['matched_edge_count'] == 0
     assert len(fake_session.calls) == 1
 
 
@@ -213,7 +215,14 @@ def test_graph_endpoint_filters_and_caps_edges(monkeypatch):
         }
         for index in range(3)
     ]
-    fake_session = _FakeSession([_FakeResult(records=records)])
+    count_records = [
+        {'node_id': 2, 'edge_count': 2},
+        {'node_id': 3, 'edge_count': 1},
+    ]
+    fake_session = _FakeSession([
+        _FakeResult(records=count_records),
+        _FakeResult(records=records),
+    ])
     monkeypatch.setattr(web_app, 'db', _FakeDB(fake_session))
 
     response = web_app.app.test_client().get(
@@ -226,12 +235,14 @@ def test_graph_endpoint_filters_and_caps_edges(monkeypatch):
     assert body['nodes'] == []
     assert len(body['edges']) == 2
     assert body['node_limit'] == 3
+    assert body['matched_node_count'] == 3
+    assert body['matched_edge_count'] == 2
     assert body['truncated'] is True
-    assert fake_session.calls[0][1]['users'] == ['root']
-    assert fake_session.calls[0][1]['methods'] == ['password']
-    assert fake_session.calls[0][1]['query_limit'] == 3
-    assert fake_session.calls[0][1]['visited_node_ids'] == [1]
-    assert 'head(collect' in fake_session.calls[0][0]
+    assert fake_session.calls[1][1]['users'] == ['root']
+    assert fake_session.calls[1][1]['methods'] == ['password']
+    assert fake_session.calls[1][1]['query_limit'] == 3
+    assert fake_session.calls[1][1]['visited_node_ids'] == [1]
+    assert 'head(collect' in fake_session.calls[1][0]
 
 
 def test_templates_directory_exists():

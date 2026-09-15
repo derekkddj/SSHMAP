@@ -555,6 +555,12 @@
             border-color: #6a7cf6;
         }
 
+        .toolbar-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            border-color: #3a3c41;
+        }
+
         .toolbar-btn:focus-visible,
         .search-container input:focus-visible,
         .path-inputs input:focus-visible,
@@ -1227,7 +1233,7 @@
                 <button class="toolbar-btn" onclick="restoreFullGraph()" title="Show all nodes">
                     🌐 Show All
                 </button>
-                <button class="toolbar-btn" onclick="network.fit()" title="Fit to view">
+                <button class="toolbar-btn" onclick="fitCurrentGraph()" title="Fit to view">
                     🔍 Fit
                 </button>
                 <button class="toolbar-btn" onclick="loadGraph(true)" title="Reload graph">
