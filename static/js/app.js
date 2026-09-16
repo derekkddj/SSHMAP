@@ -853,13 +853,27 @@ function showOnlyPath(path) {
         pathNodeNames.add(step.to);
     });
 
-    // Filter nodes that are in the path
-    const pathNodes = allNodes.filter(n => pathNodeNames.has(n.hostname));
-    const pathNodeIds = pathNodes.map(n => n.id);
+    // Build path nodes in hop order. The graph view may currently contain only
+    // a server-limited edge subset, but allNodes should still have host data.
+    const nodesByHostname = new Map(allNodes.map(node => [node.hostname, node]));
+    const pathNodes = Array.from(pathNodeNames).map(hostname => {
+        const node = nodesByHostname.get(hostname);
+        if (node) {
+            return node;
+        }
+        return {
+            id: `path-${hostname}`,
+            label: hostname,
+            hostname: hostname,
+            interfaces: [],
+            title: hostname
+        };
+    });
+    const pathNodeIdsByHostname = new Map(pathNodes.map(node => [node.hostname, node.id]));
     
     // Find matching edges in the path
     const pathEdges = [];
-    path.forEach(step => {
+    path.forEach((step, index) => {
         const matchingEdges = allEdges.filter(e =>
             e.from_hostname === step.from &&
             e.to_hostname === step.to &&
@@ -867,7 +881,30 @@ function showOnlyPath(path) {
             e.ip === step.ip &&
             e.port === step.port
         );
-        pathEdges.push(...matchingEdges);
+        if (matchingEdges.length > 0) {
+            pathEdges.push(...matchingEdges);
+            return;
+        }
+
+        const fromId = pathNodeIdsByHostname.get(step.from);
+        const toId = pathNodeIdsByHostname.get(step.to);
+        if (fromId === undefined || toId === undefined) {
+            return;
+        }
+        pathEdges.push({
+            id: `path-edge-${index}-${fromId}-${toId}`,
+            from: fromId,
+            to: toId,
+            from_hostname: step.from,
+            to_hostname: step.to,
+            user: step.user,
+            method: step.method,
+            creds: step.creds,
+            ip: step.ip,
+            port: step.port,
+            disabled: step.disabled,
+            title: `${step.user}@${step.ip}:${step.port}\nMethod: ${step.method}\nCreds: ${step.creds}`
+        });
     });
 
     // Clear and show only path nodes/edges
