@@ -702,8 +702,24 @@ function displayNodeDetails(data) {
 
 // Load details for a specific edge
 function loadEdgeDetails(edgeId) {
+    const localEdge = getEdgeById(edgeId);
+    if (!isDatabaseEdgeId(edgeId)) {
+        if (localEdge) {
+            displayEdgeDetails(localEdge);
+        } else {
+            showError('Edge details are only available for database edges');
+        }
+        return;
+    }
+
     fetch(`/api/edge/${edgeId}`)
-        .then(response => response.json())
+        .then(async response => {
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                throw new Error(`Unexpected response from server (${response.status})`);
+            }
+            return response.json();
+        })
         .then(data => {
             if (data.error) {
                 showError('Error loading edge details: ' + data.error);
@@ -715,6 +731,14 @@ function loadEdgeDetails(edgeId) {
         .catch(error => {
             showError('Failed to load edge details: ' + error.message);
         });
+}
+
+function getEdgeById(edgeId) {
+    return edges.get(edgeId) || allEdges.find(e => String(e.id) === String(edgeId));
+}
+
+function isDatabaseEdgeId(edgeId) {
+    return /^\d+$/.test(String(edgeId));
 }
 
 // Display edge details in sidebar
@@ -2251,9 +2275,9 @@ function showContextMenu(event, nodeId, edgeId) {
         `;
     } else {
         // Edge context menu
-        const edge = allEdges.find(e => e.id === edgeId);
+        const edge = getEdgeById(edgeId);
         const disabled = edge && edge.disabled;
-        menuHTML = `
+        const databaseActions = isDatabaseEdgeId(edgeId) ? `
             <div class="context-menu-item" onclick="contextMenuAction('focus')">
                 <span>🎯</span> Focus on this
             </div>
@@ -2264,6 +2288,17 @@ function showContextMenu(event, nodeId, edgeId) {
             <div class="context-menu-item danger" onclick="contextMenuAction('delete')">
                 <span>🗑️</span> Delete from database
             </div>
+        ` : `
+            <div class="context-menu-item" onclick="contextMenuAction('focus')">
+                <span>🎯</span> Focus on this
+            </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item muted">
+                Path preview edge
+            </div>
+        `;
+        menuHTML = `
+            ${databaseActions}
         `;
     }
     
@@ -2309,7 +2344,7 @@ function contextMenuAction(action) {
             } else if (type === 'edge') {
                 console.log('Focusing on edge:', target);
                 // Get edge to find connected nodes
-                const edge = allEdges.find(e => e.id === target);
+                const edge = getEdgeById(target);
                 if (edge) {
                     network.fit({
                         nodes: [edge.from, edge.to],
@@ -2366,6 +2401,11 @@ function contextMenuAction(action) {
 
 // Delete node or edge from database
 function deleteFromDatabase(type, id) {
+    if (type === 'edge' && !isDatabaseEdgeId(id)) {
+        alert('This path preview edge is not a database relationship.');
+        return;
+    }
+
     const endpoint = type === 'node' ? `/api/node/${id}` : `/api/edge/${id}`;
     
     fetch(endpoint, {
@@ -2387,7 +2427,12 @@ function deleteFromDatabase(type, id) {
 }
 
 function toggleEdgeDisabled(edgeId) {
-    const edge = allEdges.find(e => e.id === edgeId);
+    if (!isDatabaseEdgeId(edgeId)) {
+        alert('This path preview edge is not a database relationship.');
+        return;
+    }
+
+    const edge = getEdgeById(edgeId);
     const disabled = !(edge && edge.disabled);
     const action = disabled ? 'disable' : 'enable';
 
