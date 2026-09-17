@@ -818,6 +818,7 @@ def find_path():
                     'creds': meta['creds'],
                     'ip': meta['ip'],
                     'port': meta['port'],
+                    'time': meta.get('time'),
                     'disabled': meta.get('disabled', False)
                 })
             formatted_paths.append(formatted_path)

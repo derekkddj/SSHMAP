@@ -926,6 +926,7 @@ function showOnlyPath(path) {
             creds: step.creds,
             ip: step.ip,
             port: step.port,
+            time: step.time,
             disabled: step.disabled,
             title: `${step.user}@${step.ip}:${step.port}\nMethod: ${step.method}\nCreds: ${step.creds}`
         });

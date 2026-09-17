@@ -195,6 +195,7 @@ class GraphDB:
                         "creds": rel.get("creds"),
                         "ip": rel.get("ip"),
                         "port": rel.get("port"),
+                        "time": rel.get("time"),
                         "disabled": rel.get("disabled", False),
                     }
                     full_path.append((src, meta, dst))
