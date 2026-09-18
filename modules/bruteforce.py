@@ -305,23 +305,16 @@ async def try_all(
                 # Get the target hostname if the connection succeeded
                 to_hostname = result.ssh_session.get_remote_hostname() if result and result.ssh_session else host
                 try:
-                    # Await directly with timeout - SQLite uses thread pool so won't block event loop
-                    await asyncio.wait_for(
-                        attempt_store.record_attempt(
-                            source_hostname,
-                            to_hostname,
-                            host,
-                            port,
-                            credential.user,
-                            credential.method,
-                            credential.secret,
-                            result is not None,
-                        ),
-                        timeout=10.0  # 10 second timeout for high-concurrency scenarios
-                    )
-                except asyncio.TimeoutError:
-                    sshmap_logger.warning(
-                        f"[ATTEMPT_STORE] Record timeout for {credential.user}@{host}:{port} - database may be overwhelmed"
+                    # SQLite writes are serialized by AttemptStore to avoid lock storms.
+                    await attempt_store.record_attempt(
+                        source_hostname,
+                        to_hostname,
+                        host,
+                        port,
+                        credential.user,
+                        credential.method,
+                        credential.secret,
+                        result is not None,
                     )
                 except Exception as e:
                     sshmap_logger.debug(

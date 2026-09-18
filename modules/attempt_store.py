@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from .logger import sshmap_logger
 
 
@@ -13,6 +14,13 @@ class AttemptStore:
 
     def __init__(self, db_path: str = "output/ssh_attempts.db"):
         self.db_path = db_path
+        self._busy_timeout_ms = 60000
+        # SQLite supports concurrent readers, but only one writer. Keep writes
+        # serialized so high scan concurrency does not create lock storms.
+        self._write_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="sshmap-attempt-store",
+        )
         self._init_db()
 
     def _init_db(self):
@@ -20,12 +28,12 @@ class AttemptStore:
         # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=self._busy_timeout_ms / 1000)
         
         # Enable WAL mode for better concurrency (multiple writers)
         conn.execute("PRAGMA journal_mode=WAL")
         # Increase timeout for lock contention
-        conn.execute("PRAGMA busy_timeout=5000")  # 5 second timeout
+        conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
         # Reduce fsync frequency for better performance
         conn.execute("PRAGMA synchronous=NORMAL")
         
@@ -52,6 +60,17 @@ class AttemptStore:
             CREATE INDEX IF NOT EXISTS idx_attempt_lookup 
             ON ssh_attempts(source_hostname, target_ip, target_port, username, method, credential)
         """)
+
+        try:
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_attempt_unique
+                ON ssh_attempts(source_hostname, target_ip, target_port, username, method, credential)
+            """)
+        except sqlite3.IntegrityError:
+            sshmap_logger.debug(
+                "[ATTEMPT_STORE] Existing duplicate rows prevent unique index creation. "
+                "New writes will still be deduplicated."
+            )
         
         conn.commit()
         conn.close()
@@ -71,7 +90,7 @@ class AttemptStore:
         # Run the database write in a thread pool to avoid blocking
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(
-            None,
+            self._write_executor,
             self._record_attempt_sync,
             source_hostname,
             target_hostname,
@@ -96,24 +115,71 @@ class AttemptStore:
     ):
         """Synchronously record an SSH attempt."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=self._busy_timeout_ms / 1000)
             # Configure for high concurrency
-            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
             conn.execute("PRAGMA synchronous=NORMAL")
             
             cursor = conn.cursor()
             
             cursor.execute(
                 """
-                INSERT INTO ssh_attempts 
+                INSERT OR IGNORE INTO ssh_attempts
                 (source_hostname, target_hostname, target_ip, target_port, username, method, credential, success)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM ssh_attempts
+                    WHERE source_hostname = ?
+                      AND target_ip = ?
+                      AND target_port = ?
+                      AND username = ?
+                      AND method = ?
+                      AND credential = ?
+                )
                 """,
-                (source_hostname, target_hostname, target_ip, target_port, username, method, credential, success),
+                (
+                    source_hostname,
+                    target_hostname,
+                    target_ip,
+                    target_port,
+                    username,
+                    method,
+                    credential,
+                    success,
+                    source_hostname,
+                    target_ip,
+                    target_port,
+                    username,
+                    method,
+                    credential,
+                ),
             )
+
+            if success:
+                cursor.execute(
+                    """
+                    UPDATE ssh_attempts
+                    SET success = 1, target_hostname = ?
+                    WHERE source_hostname = ?
+                      AND target_ip = ?
+                      AND target_port = ?
+                      AND username = ?
+                      AND method = ?
+                      AND credential = ?
+                      AND success = 0
+                    """,
+                    (
+                        target_hostname,
+                        source_hostname,
+                        target_ip,
+                        target_port,
+                        username,
+                        method,
+                        credential,
+                    ),
+                )
             
             conn.commit()
-            conn.close()
             conn.close()
         except Exception as e:
             sshmap_logger.debug(
@@ -129,7 +195,7 @@ class AttemptStore:
         Credentials are actual values stored in the database.
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=self._busy_timeout_ms / 1000)
             cursor = conn.cursor()
             
             cursor.execute(
@@ -160,7 +226,7 @@ class AttemptStore:
         Returns a set of (username, method, credential) tuples that were successful.
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=self._busy_timeout_ms / 1000)
             cursor = conn.cursor()
             
             cursor.execute(
@@ -184,5 +250,4 @@ class AttemptStore:
 
     def close(self):
         """Close the database connection."""
-        # SQLite handles this automatically, but this method exists for compatibility
-        pass
+        self._write_executor.shutdown(wait=True)

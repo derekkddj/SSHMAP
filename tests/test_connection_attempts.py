@@ -1,6 +1,7 @@
 import pytest
 import tempfile
 import os
+import sqlite3
 from modules.attempt_store import AttemptStore
 
 
@@ -108,7 +109,7 @@ class TestConnectionAttempts:
 
     @pytest.mark.asyncio
     async def test_credential_deduplication(self, attempt_store):
-        """Test that duplicate attempts return same credential set"""
+        """Test that duplicate attempts are not recorded twice"""
         # Record the same credential twice (simulating a retry)
         await attempt_store.record_attempt(
             source_hostname="host1",
@@ -136,6 +137,54 @@ class TestConnectionAttempts:
         attempts = attempt_store.get_attempted_credentials("host1", "192.168.1.1", 22)
         assert len(attempts) == 1
         assert ("root", "password", "secret123") in attempts
+
+        conn = sqlite3.connect(attempt_store.db_path)
+        try:
+            row_count = conn.execute("SELECT COUNT(*) FROM ssh_attempts").fetchone()[0]
+        finally:
+            conn.close()
+
+        assert row_count == 1
+
+    @pytest.mark.asyncio
+    async def test_duplicate_success_updates_existing_attempt(self, attempt_store):
+        """Test that a later successful duplicate updates the existing attempt."""
+        await attempt_store.record_attempt(
+            source_hostname="host1",
+            target_hostname="host2",
+            target_ip="192.168.1.1",
+            target_port=22,
+            username="root",
+            method="password",
+            credential="secret123",
+            success=False,
+        )
+
+        await attempt_store.record_attempt(
+            source_hostname="host1",
+            target_hostname="host2-real",
+            target_ip="192.168.1.1",
+            target_port=22,
+            username="root",
+            method="password",
+            credential="secret123",
+            success=True,
+        )
+
+        successful = attempt_store.get_successful_attempts("host1", "192.168.1.1", 22)
+        assert successful == {("root", "password", "secret123")}
+
+        conn = sqlite3.connect(attempt_store.db_path)
+        try:
+            row_count, target_hostname, success = conn.execute(
+                "SELECT COUNT(*), MAX(target_hostname), MAX(success) FROM ssh_attempts"
+            ).fetchone()
+        finally:
+            conn.close()
+
+        assert row_count == 1
+        assert target_hostname == "host2-real"
+        assert success == 1
 
     @pytest.mark.asyncio
     async def test_different_targets_isolated(self, attempt_store):
