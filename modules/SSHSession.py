@@ -22,6 +22,7 @@ class SSHSession:
         key_objects=None,
         attempt_id=None,
         proxy_url=None,
+        skip_hostname_probe=False,
     ):
         # If jump_session is provided, use it for the connection. Must be SSHSession instance.
         self.host = host
@@ -31,6 +32,7 @@ class SSHSession:
         self.port = port
         self.jumper = jumper
         self.proxy_url = proxy_url
+        self.skip_hostname_probe = skip_hostname_probe
         self.connection = (
             None  # Initialize the client as None, type asyncssh.SSHClientConnection
         )
@@ -232,7 +234,13 @@ class SSHSession:
                     pass
                 await asyncio.sleep(0.15)
 
-            self.remote_hostname = await get_remote_hostname(self)
+            if self.skip_hostname_probe:
+                self.remote_hostname = self.host
+                self.sshmap_logger.debug(
+                    f"Skipping hostname probe for {self.host}:{self.port}; using host as remote hostname"
+                )
+            else:
+                self.remote_hostname = await get_remote_hostname(self)
             if self._broken or self.connection is None:
                 self.sshmap_logger.debug(
                     f"Connection to {self.host}:{self.port} broke while getting hostname"

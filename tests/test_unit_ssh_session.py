@@ -90,6 +90,24 @@ class TestSSHSession:
         assert session.connection is None
         on_broken.assert_awaited_once_with(session)
 
+    @patch('modules.SSHSession.get_remote_hostname', new_callable=AsyncMock)
+    @patch('modules.SSHSession.asyncssh.connect', new_callable=AsyncMock)
+    @patch('modules.SSHSession.asyncio.sleep', new_callable=AsyncMock)
+    async def test_connect_can_skip_hostname_probe(
+        self, mock_sleep, mock_connect, mock_get_hostname
+    ):
+        session = SSHSession(
+            "127.0.0.1", "user", password="pass", skip_hostname_probe=True
+        )
+        mock_connection = MagicMock()
+        mock_connection.run = AsyncMock()
+        mock_connection.run.return_value.exit_status = 0
+        mock_connect.return_value = mock_connection
+
+        assert await session.connect() is True
+        assert session.remote_hostname == "127.0.0.1"
+        mock_get_hostname.assert_not_awaited()
+
     @patch('modules.SSHSession.sys')
     @patch('modules.SSHSession.os')
     @patch('modules.SSHSession.termios')

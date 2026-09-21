@@ -6,10 +6,11 @@ import time
 
 
 class SSHSessionManager:
-    def __init__(self, graphdb, credential_store, proxy_url=None):
+    def __init__(self, graphdb, credential_store, proxy_url=None, skip_hostname_probe=False):
         self.graphdb = graphdb
         self.credential_store = credential_store
         self.proxy_url = proxy_url
+        self.skip_hostname_probe = skip_hostname_probe
         self.sessions = {}  # hostname -> SSHSession instance
         self._session_locks = {}
         self._session_locks_guard = asyncio.Lock()
@@ -94,7 +95,8 @@ class SSHSessionManager:
                     key_objects=key_object if key_object else None,
                     port=meta["port"],
                     jumper=previous_session,
-                    proxy_url=self.proxy_url
+                    proxy_url=self.proxy_url,
+                    skip_hostname_probe=self.skip_hostname_probe,
                 )
 
                 sshmap_logger.info(f"Connecting to {dst} ({meta['ip']}:{meta['port']}) as {meta['user']}...")

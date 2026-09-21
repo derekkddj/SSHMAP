@@ -68,7 +68,10 @@ async def execute_command_on_host(
     """
     try:
         ssh_session_manager = SSHSessionManager(
-            graphdb=graph, credential_store=credential_store, proxy_url=args.proxy
+            graphdb=graph,
+            credential_store=credential_store,
+            proxy_url=args.proxy,
+            skip_hostname_probe=getattr(args, "skip_hostname_probe", False),
         )
         host_ssh = await ssh_session_manager.get_session(target, local_hostname)
         if not host_ssh:
@@ -281,6 +284,11 @@ def main():
         type=str,
         default=None,
         help="Fake the local hostname used for Neo4j path resolution (e.g., 'nessus')",
+    )
+    parser.add_argument(
+        "--skip-hostname-probe",
+        action="store_true",
+        help="Skip the post-connect hostname command and use the requested host/IP as the session hostname",
     )
 
     args = parser.parse_args()
