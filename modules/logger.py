@@ -21,6 +21,7 @@ LOG_VERBOSITY_LEVELS = [
     ("verbose", logging.INFO),
     ("debug", logging.DEBUG),
 ]
+CONSOLE_DATEFMT = "[%Y-%m-%d %H:%M:%S]"
 
 
 def _apply_log_level(level):
@@ -93,7 +94,7 @@ def setup_debug_logging():
 def create_temp_logger(caller_frame, formatted_text, args, kwargs):
     """Create a temporary logger for emitting a log where we need to override the calling file & line number, since these are obfuscated"""
     temp_logger = logging.getLogger("temp")
-    formatter = logging.Formatter("%(message)s", datefmt="[%X]")
+    formatter = logging.Formatter("%(message)s", datefmt=CONSOLE_DATEFMT)
     handler = SmartDebugRichHandler(formatter=formatter)
     handler.handle(
         LogRecord(
@@ -149,7 +150,7 @@ class NXCAdapter(logging.LoggerAdapter):
     def __init__(self, extra=None, merge_extra=False):
         logging.basicConfig(
             format="%(message)s",
-            datefmt="[%X]",
+            datefmt=CONSOLE_DATEFMT,
             handlers=[
                 RichHandler(
                     console=nxc_console,
@@ -200,7 +201,7 @@ class NXCAdapter(logging.LoggerAdapter):
             if "module_name" in self.extra
             else colored(self.extra["protocol"], "blue", attrs=["bold"])
         )
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         exec_id = execution_id()
 
         return (
