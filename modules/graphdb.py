@@ -173,7 +173,8 @@ class GraphDB:
                 MATCH (start:Host {hostname: $start}), (end:Host {hostname: $end})
                 MATCH path = shortestPath((start)-[rels:SSH_ACCESS*..15]->(end))
                 WHERE all(r IN rels WHERE coalesce(r.disabled, false) = false)
-                RETURN nodes(path) AS nodes, rels AS relationships
+                RETURN nodes(path) AS nodes, rels AS relationships,
+                       [r IN rels | id(r)] AS relationship_ids
             """,
                 start=start_hostname,
                 end=end_hostname,
@@ -182,6 +183,7 @@ class GraphDB:
             for record in result:
                 nodes = record["nodes"]
                 rels = record["relationships"]
+                rel_ids = record["relationship_ids"]
 
                 full_path = []
                 for i in range(len(rels)):
@@ -190,6 +192,7 @@ class GraphDB:
                     rel = rels[i]
                     # Collect the relevant SSH metadata
                     meta = {
+                        "id": rel_ids[i],
                         "user": rel.get("user"),
                         "method": rel.get("method"),
                         "creds": rel.get("creds"),
@@ -227,7 +230,7 @@ class GraphDB:
             inv_weight = 0, r IN relationships(path) |
             inv_weight + (9999999999999 - coalesce(r.time, 0))
         ) AS total_inv_weight
-        RETURN path, total_inv_weight
+        RETURN path, [r IN relationships(path) | id(r)] AS relationship_ids, total_inv_weight
         ORDER BY total_inv_weight ASC
         LIMIT $limit
         """
@@ -250,6 +253,7 @@ class GraphDB:
                     if "relationships" in record
                     else path.relationships
                 )
+                rel_ids = record["relationship_ids"]
 
                 path_segments = []
                 for i in range(len(rels)):
@@ -257,6 +261,7 @@ class GraphDB:
                     dst = nodes[i + 1]["hostname"]
                     rel = rels[i]
                     meta = {
+                        "id": rel_ids[i],
                         "user": rel.get("user"),
                         "method": rel.get("method"),
                         "creds": rel.get("creds"),
@@ -280,7 +285,7 @@ class GraphDB:
                 f"""
                 MATCH path = (start:Host {{hostname: $start}})-[:SSH_ACCESS*1..{max_depth}]->(end:Host {{hostname: $end}})
                 WHERE all(r IN relationships(path) WHERE coalesce(r.disabled, false) = false)
-                RETURN path
+                RETURN path, [r IN relationships(path) | id(r)] AS relationship_ids
             """,
                 start=start_hostname,
                 end=end_hostname,
@@ -289,7 +294,9 @@ class GraphDB:
             # Process each path returned and format it with metadata
             all_paths = []
             for record in result:
-                formatted_path = self._format_path_with_metadata(record["path"])
+                formatted_path = self._format_path_with_metadata(
+                    record["path"], record["relationship_ids"]
+                )
                 all_paths.append(formatted_path)
 
             return all_paths
@@ -455,7 +462,7 @@ class GraphDB:
         """
         return [node["hostname"] for node in path.nodes]
 
-    def _format_path_with_metadata(self, path):
+    def _format_path_with_metadata(self, path, relationship_ids=None):
         """
         Converts a Neo4j Path object into a list of (src, metadata, dst) tuples with full metadata.
         """
@@ -468,6 +475,7 @@ class GraphDB:
             dst = nodes[i + 1]["hostname"]
             # Extract all properties of the relationship (metadata)
             meta = dict(rels[i])  # Includes user, method, creds, ip, port, etc.
+            meta["id"] = relationship_ids[i] if relationship_ids else getattr(rels[i], "id", None)
             segments.append((src, meta, dst))
 
         return segments

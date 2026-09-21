@@ -811,6 +811,7 @@ def find_path():
             formatted_path = []
             for src, meta, dst in path:
                 formatted_path.append({
+                    'id': meta.get('id'),
                     'from': src,
                     'to': dst,
                     'user': meta['user'],

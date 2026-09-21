@@ -662,6 +662,7 @@ function displayNodeDetails(data) {
                     IP: ${escapeHtml(conn.ip)}:${conn.port}<br>
                     Method: ${escapeHtml(conn.method)}<br>
                     Status: ${conn.disabled ? '<span style="color:#ef4444;">Disabled</span>' : 'Enabled'}
+                    ${renderEdgeToggleButton(conn.edge_id, conn.disabled)}
                 </div>
             `;
         });
@@ -687,6 +688,7 @@ function displayNodeDetails(data) {
                     IP: ${escapeHtml(conn.ip)}:${conn.port}<br>
                     Method: ${escapeHtml(conn.method)}<br>
                     Status: ${conn.disabled ? '<span style="color:#ef4444;">Disabled</span>' : 'Enabled'}
+                    ${renderEdgeToggleButton(conn.edge_id, conn.disabled)}
                 </div>
             `;
         });
@@ -741,6 +743,19 @@ function isDatabaseEdgeId(edgeId) {
     return /^\d+$/.test(String(edgeId));
 }
 
+function renderEdgeToggleButton(edgeId, disabled) {
+    if (!isDatabaseEdgeId(edgeId)) {
+        return '';
+    }
+
+    const action = disabled ? 'Enable' : 'Disable';
+    return `
+        <button class="btn btn-secondary" onclick="event.stopPropagation(); toggleEdgeDisabled(${edgeId})" style="width: 100%; margin-top: 8px;">
+            ${disabled ? '✅' : '🚫'} ${action} edge
+        </button>
+    `;
+}
+
 // Display edge details in sidebar
 function displayEdgeDetails(data) {
     const container = document.getElementById('detailsContainer');
@@ -782,6 +797,7 @@ function displayEdgeDetails(data) {
                 <strong>Status:</strong>
                 <span style="color: ${data.disabled ? '#ef4444' : '#22c55e'};">${data.disabled ? 'Disabled' : 'Enabled'}</span>
             </div>
+            ${renderEdgeToggleButton(data.id, data.disabled)}
         </div>
     `;
     
@@ -853,7 +869,9 @@ function displayPath(path) {
                 <div class="arrow">↓</div>
                 User: ${escapeHtml(step.user)}<br>
                 IP: ${escapeHtml(step.ip)}:${step.port}<br>
-                Method: ${escapeHtml(step.method)}
+                Method: ${escapeHtml(step.method)}<br>
+                Status: ${step.disabled ? '<span style="color:#ef4444;">Disabled</span>' : 'Enabled'}
+                ${renderEdgeToggleButton(step.id, step.disabled)}
             </div>
         `;
     });
@@ -898,6 +916,31 @@ function showOnlyPath(path) {
     // Find matching edges in the path
     const pathEdges = [];
     path.forEach((step, index) => {
+        const fromId = pathNodeIdsByHostname.get(step.from);
+        const toId = pathNodeIdsByHostname.get(step.to);
+        if (fromId === undefined || toId === undefined) {
+            return;
+        }
+
+        if (isDatabaseEdgeId(step.id)) {
+            pathEdges.push({
+                id: step.id,
+                from: fromId,
+                to: toId,
+                from_hostname: step.from,
+                to_hostname: step.to,
+                user: step.user,
+                method: step.method,
+                creds: step.creds,
+                ip: step.ip,
+                port: step.port,
+                time: step.time,
+                disabled: step.disabled,
+                title: `${step.user}@${step.ip}:${step.port}\nMethod: ${step.method}\nCreds: ${step.creds}\nStatus: ${step.disabled ? 'Disabled' : 'Enabled'}`
+            });
+            return;
+        }
+
         const matchingEdges = allEdges.filter(e =>
             e.from_hostname === step.from &&
             e.to_hostname === step.to &&
@@ -910,11 +953,6 @@ function showOnlyPath(path) {
             return;
         }
 
-        const fromId = pathNodeIdsByHostname.get(step.from);
-        const toId = pathNodeIdsByHostname.get(step.to);
-        if (fromId === undefined || toId === undefined) {
-            return;
-        }
         pathEdges.push({
             id: `path-edge-${index}-${fromId}-${toId}`,
             from: fromId,
@@ -928,7 +966,7 @@ function showOnlyPath(path) {
             port: step.port,
             time: step.time,
             disabled: step.disabled,
-            title: `${step.user}@${step.ip}:${step.port}\nMethod: ${step.method}\nCreds: ${step.creds}`
+            title: `${step.user}@${step.ip}:${step.port}\nMethod: ${step.method}\nCreds: ${step.creds}\nStatus: ${step.disabled ? 'Disabled' : 'Enabled'}`
         });
     });
 
@@ -950,10 +988,11 @@ function showOnlyPath(path) {
     const highlightedEdges = pathEdges.map(edge => ({
         ...edge,
         color: {
-            color: '#22c55e'
+            color: edge.disabled ? '#ef4444' : '#22c55e'
         },
+        dashes: Boolean(edge.disabled),
         width: 3,
-        label: edge.user
+        label: edge.disabled ? `${edge.user} (disabled)` : edge.user
     }));
     
     nodes.add(highlightedNodes);
@@ -2232,7 +2271,7 @@ function focusOnHostname(hostname) {
 
 // Focus on an edge by ID
 function focusOnEdge(edgeId) {
-    const edge = allEdges.find(e => e.id === edgeId);
+    const edge = getEdgeById(edgeId);
     if (edge) {
         network.selectEdges([edgeId]);
         loadEdgeDetails(edgeId);
@@ -2453,7 +2492,27 @@ function toggleEdgeDisabled(edgeId) {
         if (!data.success) {
             throw new Error(data.error || `Failed to ${action} edge`);
         }
-        loadGraph(false);
+
+        allEdges = allEdges.map(edge => String(edge.id) === String(edgeId)
+            ? { ...edge, disabled: data.disabled }
+            : edge
+        );
+
+        const currentEdge = edges.get(edgeId);
+        if (currentEdge) {
+            edges.update({
+                ...currentEdge,
+                disabled: data.disabled,
+                dashes: Boolean(data.disabled),
+                color: { color: data.disabled ? '#ef4444' : '#22c55e' },
+                label: data.disabled ? `${currentEdge.user} (disabled)` : currentEdge.user,
+                title: `${currentEdge.user}@${currentEdge.ip}:${currentEdge.port}\nMethod: ${currentEdge.method}\nCreds: ${currentEdge.creds}\nStatus: ${data.disabled ? 'Disabled' : 'Enabled'}`
+            });
+        }
+
+        if (!isPathView) {
+            loadGraph(false);
+        }
         loadEdgeDetails(edgeId);
     })
     .catch(error => {

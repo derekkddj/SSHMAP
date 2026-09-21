@@ -245,6 +245,40 @@ def test_graph_endpoint_filters_and_caps_edges(monkeypatch):
     assert 'head(collect' in fake_session.calls[1][0]
 
 
+def test_path_endpoint_includes_edge_id(monkeypatch):
+    import web_app
+
+    class _FakePathDB:
+        def find_path(self, start, end):
+            assert start == 'jumpbox'
+            assert end == 'target'
+            return [(
+                'jumpbox',
+                {
+                    'id': 42,
+                    'user': 'root',
+                    'method': 'password',
+                    'creds': 'secret',
+                    'ip': '10.0.0.20',
+                    'port': 22,
+                    'time': 1710000000000,
+                    'disabled': False,
+                },
+                'target',
+            )]
+
+    monkeypatch.setattr(web_app, 'db', _FakePathDB())
+
+    response = web_app.app.test_client().post(
+        '/api/path',
+        json={'start': 'jumpbox', 'end': 'target'},
+    )
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['paths'][0][0]['id'] == 42
+
+
 def test_templates_directory_exists():
     """Test that templates directory exists."""
     templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
