@@ -41,10 +41,10 @@ from modules.helpers.AsyncRandomQueue import AsyncRandomQueue
 from modules.notifier import notifier
 
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 
-# Setup neo4j for graph data (successful connections)
-graph = graphdb.GraphDB(CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"])
+# Initialized by main only when graph-backed recursive scanning is enabled.
+graph = None
 
 # Setup SQLite for attempt logging (much faster than Neo4j for this use case)
 attempt_db_path = os.path.expanduser(CONFIG.get("attempt_db_path", "output/ssh_attempts.db"))
@@ -367,37 +367,42 @@ async def handle_target(
                         )
                         # Use the hostname that was already retrieved during connection
                         remote_hostname = ssh_conn.get_remote_hostname()
-                        try:
-                            remote_ips = await get_remote_ip(ssh_conn)
-                        except Exception as e:
-                            sshmap_logger.warning(
-                                f"[{target}:{port}] Failed to collect remote IPs for {remote_hostname}: {type(e).__name__}: {e}. Using target IP fallback."
+                        if graph is not None:
+                            try:
+                                remote_ips = await get_remote_ip(ssh_conn)
+                            except Exception as e:
+                                sshmap_logger.warning(
+                                    f"[{target}:{port}] Failed to collect remote IPs for {remote_hostname}: {type(e).__name__}: {e}. Using target IP fallback."
+                                )
+                                remote_ips = [{"ip": target, "mask": 32}]
+
+                            sshmap_logger.debug(
+                                f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}"
                             )
-                            remote_ips = [{"ip": target, "mask": 32}]
+                            sshmap_logger.debug(
+                                f"[{target}:{port}] Net info target: {remote_hostname} with IPs: {remote_ips}"
+                            )
+                            graph.add_host(remote_hostname, remote_ips)
 
-                        sshmap_logger.debug(
-                            f"[{target}:{port}] Add target to database: {res.user}@{target} using {res.method}"
-                        )
-                        sshmap_logger.debug(
-                            f"[{target}:{port}] Net info target: {remote_hostname} with IPs: {remote_ips}"
-                        )
-                        graph.add_host(remote_hostname, remote_ips)
-
-                        sshmap_logger.info(
-                            f"[{target}:{port}] Add SSH connection {source_host}->{remote_hostname} with creds:{res.user}:{res.creds}"
-                        )
-                        graph.add_ssh_connection(
-                            from_hostname=source_host,
-                            to_hostname=remote_hostname,
-                            user=res.user,
-                            method=res.method,
-                            creds=res.creds,
-                            ip=target,
-                            port=port,
-                        )
-                        sshmap_logger.success(
-                            f"[{target}:{port}] Successfully added SSH connection from {source_host} to {remote_hostname} with user {res.user}"
-                        )
+                            sshmap_logger.info(
+                                f"[{target}:{port}] Add SSH connection {source_host}->{remote_hostname} with creds:{res.user}:{res.creds}"
+                            )
+                            graph.add_ssh_connection(
+                                from_hostname=source_host,
+                                to_hostname=remote_hostname,
+                                user=res.user,
+                                method=res.method,
+                                creds=res.creds,
+                                ip=target,
+                                port=port,
+                            )
+                            sshmap_logger.success(
+                                f"[{target}:{port}] Successfully added SSH connection from {source_host} to {remote_hostname} with user {res.user}"
+                            )
+                        else:
+                            sshmap_logger.success(
+                                f"[{target}:{port}] Successful SSH connection to {remote_hostname} with user {res.user}"
+                            )
                         global hosts_compromised_count
                         hosts_compromised_count += 1
                         notifier.notify_new_access(
@@ -413,7 +418,8 @@ async def handle_target(
                         # logger.info(f"[{target}] Keys found: {keys_found}")
                         # I need to create new jobs only if i have not used this jump before
                         if (
-                            remote_hostname not in visited_attempts
+                            graph is not None
+                            and remote_hostname not in visited_attempts
                             and current_depth < max_depth
                             and remote_hostname != start_host
                         ):
@@ -593,7 +599,8 @@ async def async_main(args):
                 await credential_store.store("_bruteforce", 22, user, keyfile, "keyfile")
         # Preload keys from the directory
 
-    graph.add_host(start_host, start_ips)
+    if graph is not None:
+        graph.add_host(start_host, start_ips)
 
     # Initialize filtering variables
     blacklist_ips = []
@@ -631,9 +638,14 @@ async def async_main(args):
     else:
         sshmap_logger.display("Smart scanning enabled - skipping already-attempted connections. Use --force-rescan to retry all.")
     
-    sshmap_logger.display(
-        f"Starting attack on {len(new_targets)} targets with max depth {max_depth}"
-    )
+    if args.no_recursion:
+        sshmap_logger.display(
+            f"Starting non-recursive attack on {len(new_targets)} targets (Neo4j disabled)"
+        )
+    else:
+        sshmap_logger.display(
+            f"Starting attack on {len(new_targets)} targets with max depth {max_depth}"
+        )
     if extra_recursive_targets:
         sshmap_logger.display(
             f"Adding {len(extra_recursive_targets)} extra recursive target(s) to every discovered jump host"
@@ -905,7 +917,8 @@ async def async_main(args):
             for w in workers:
                 w.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
-            graph.close()
+            if graph is not None:
+                graph.close()
 
         print_jumphosts(visited_attempts)
     
@@ -1029,6 +1042,11 @@ def main():
     )
     parser.add_argument("--maxdepth", type=int, default=5, help="Max depth of the scan")
     parser.add_argument(
+        "--no-recursion",
+        action="store_true",
+        help="Scan only the supplied targets directly without using Neo4j",
+    )
+    parser.add_argument(
         "--force-rescan",
         action="store_true",
         help="Force retry of already-attempted connections (ignore attempt history)",
@@ -1077,8 +1095,11 @@ def main():
     )
 
     args = parser.parse_args()
-    global max_depth
-    max_depth = args.maxdepth
+    global graph, max_depth
+    if args.no_recursion and args.start_from:
+        parser.error("--no-recursion cannot be used with --start-from")
+
+    max_depth = 1 if args.no_recursion else args.maxdepth
 
     # Configure ntfy notifier: CLI args take priority over config.yml
     _ntfy_url   = args.ntfy_url   or CONFIG.get("ntfy_url", "")
@@ -1094,14 +1115,21 @@ def main():
         sshmap_logger.display(f"Logging to file: {log_file}")
 
     sshmap_logger.debug("Starting async_main with args: %s", args)
-    # Check if Neo4J database is running
-    try:
-        graph.driver.verify_connectivity()
-    except Exception as e:
-        sshmap_logger.error(
-            f"Neo4J connectivity check failed, check if it is running: {e}"
+    if args.no_recursion:
+        graph = None
+    else:
+        graph = graphdb.GraphDB(
+            CONFIG["neo4j_uri"], CONFIG["neo4j_user"], CONFIG["neo4j_pass"]
         )
-        return
+        try:
+            graph.driver.verify_connectivity()
+        except Exception as e:
+            graph.close()
+            graph = None
+            sshmap_logger.error(
+                f"Neo4J connectivity check failed, check if it is running: {e}"
+            )
+            return
     asyncio.run(async_main(args))
 
 

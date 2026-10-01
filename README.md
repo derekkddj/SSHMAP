@@ -7,7 +7,7 @@ There is a cli tool to get the paths from one starting point to other machines, 
  $ sshmap --help                                                                
 usage: sshmap [-h] --targets TARGETS [--blacklist BLACKLIST] [--whitelist WHITELIST] [--force-targets FORCE_TARGETS] [--users USERS]
               [--passwords PASSWORDS] [--credentialspath CREDENTIALSPATH] [--keys KEYS] [--maxworkers MAXWORKERS]
-              [--maxworkers-ssh MAXWORKERS_SSH] [--max-retries MAX_RETRIES] [--maxdepth MAXDEPTH] [--force-rescan] [--debug] [--verbose]
+              [--maxworkers-ssh MAXWORKERS_SSH] [--max-retries MAX_RETRIES] [--maxdepth MAXDEPTH] [--no-recursion] [--force-rescan] [--debug] [--verbose]
               [--log] [--log-file LOG_FILE] [--start-from START_FROM]
 
     ███████╗███████╗██╗  ██╗███╗   ███╗ █████╗ ██████╗
@@ -20,7 +20,7 @@ usage: sshmap [-h] --targets TARGETS [--blacklist BLACKLIST] [--whitelist WHITEL
         SSH Credential Mapper - SSHMAP
         Navigating the Maze of Access...
 
-        Version : 1.0.3
+        Version : 1.0.4
 
 
 options:
@@ -45,6 +45,7 @@ options:
   --max-retries MAX_RETRIES
                         Maximum number of retries for transient connection failures
   --maxdepth MAXDEPTH   Max depth of the scan
+  --no-recursion        Scan only the supplied targets directly without using Neo4j
   --force-rescan        Force retry of already-attempted connections (ignore attempt history)
   --debug               enable debug level information
   --verbose             enable verbose output
@@ -156,6 +157,13 @@ Then run the program from your starting host.
 ```bash
 $ sshmap --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
 ```
+
+To scan only the supplied targets without recursive discovery or a running Neo4j database:
+```bash
+$ sshmap --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --no-recursion
+```
+
+Successful credentials are still saved to the credential store and attempts are still tracked in SQLite. `--no-recursion` cannot be combined with `--start-from`, which relies on Neo4j to resolve the jump path.
 
 #### Starting from a Remote Host
 

@@ -4,7 +4,7 @@
 
 **SSHMAP** (SSH Credential Mapper) is a modular Python-based security tool designed for automated SSH network reconnaissance and credential mapping. It performs intelligent SSH bruteforce attacks, recursively discovers accessible hosts through jump hosts, and stores the network topology in a Neo4j graph database for visualization and path analysis.
 
-**Version:** 1.0.3
+**Version:** 1.0.4
 
 **Primary Use Cases:**
 - Network penetration testing and security assessment
@@ -86,6 +86,7 @@
 **Key Features:**
 - Asynchronous concurrent scanning with configurable worker pools
 - Recursive network traversal through jump hosts
+- Optional direct-only scanning without Neo4j (`--no-recursion`)
 - Smart connection tracking with SQLite-based attempt history
 - Interactive pause/resume controls during scanning
 - Support for SOCKS5/HTTP proxy routing
@@ -965,6 +966,7 @@ sshmap --targets <file|IP|CIDR> \
        [--maxworkers <int>] \
        [--maxworkers-ssh <int>] \
        [--maxdepth <int>] \
+       [--no-recursion] \
        [--force-rescan] \
        [--start-from <hostname>] \
        [--blacklist <file>] \
@@ -1327,4 +1329,4 @@ For questions, issues, or contributions, visit the GitHub repository.
 
 **Document Version:** 1.0  
 **Last Updated:** 2026-07-08  
-**SSHMAP Version:** 1.0.3
+**SSHMAP Version:** 1.0.4
