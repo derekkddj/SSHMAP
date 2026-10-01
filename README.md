@@ -165,6 +165,11 @@ $ sshmap --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords
 
 Successful credentials are still saved to the credential store and attempts are still tracked in SQLite. `--no-recursion` cannot be combined with `--start-from`, which relies on Neo4j to resolve the jump path.
 
+When running in a terminal, scan workers can be adjusted while scanning:
+- Press `a` to add a worker.
+- Press `r` to remove a worker (at least one remains active).
+- Press `p` to pause or resume the scan.
+
 #### Starting from a Remote Host
 
 SSHMAP supports starting the scan from any previously discovered remote host using the `--start-from` option. This is useful when you want to continue scanning from a specific machine in your network map.

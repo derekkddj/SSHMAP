@@ -78,15 +78,28 @@ progress = Progress(
 class ScanPauseController:
     """Controls pause/resume state for scan workers."""
 
-    def __init__(self):
+    def __init__(self, worker_count=1):
         self.run_event = threading.Event()
         self.run_event.set()
         self.stop_event = threading.Event()
         self._lock = threading.Lock()
+        self._worker_count = max(1, worker_count)
         self._progress = None
         self._task_ids = None
         self._blocked_jumphosts = set()
         self._pending_block_requests = []
+
+    @property
+    def worker_count(self):
+        with self._lock:
+            return self._worker_count
+
+    def adjust_workers(self, delta):
+        with self._lock:
+            self._worker_count = max(1, self._worker_count + delta)
+            worker_count = self._worker_count
+        sshmap_logger.display(f"Worker count set to {worker_count}.")
+        return worker_count
 
     def bind_progress(self, progress_instance, task_ids):
         self._progress = progress_instance
@@ -152,9 +165,12 @@ class ScanPauseController:
             self._pending_block_requests.clear()
             return pending
 
-    async def wait_if_paused(self):
+    async def wait_if_paused(self, retire_event=None):
         while not self.run_event.is_set():
+            if retire_event is not None and retire_event.is_set():
+                return False
             await asyncio.sleep(0.2)
+        return True
 
 
 def start_pause_key_listener(controller):
@@ -228,6 +244,10 @@ def start_pause_key_listener(controller):
                 elif key == "-":
                     verbosity = adjust_log_verbosity(-1)
                     sshmap_logger.display(f"Log verbosity decreased to {verbosity}.")
+                elif key and key.lower() == "a":
+                    controller.adjust_workers(1)
+                elif key and key.lower() == "r":
+                    controller.adjust_workers(-1)
         except Exception as e:
             sshmap_logger.debug(f"Pause hotkey listener stopped: {e}")
         finally:
@@ -239,7 +259,10 @@ def start_pause_key_listener(controller):
         daemon=True,
     )
     listener_thread.start()
-    sshmap_logger.display("Hotkeys: 'p' pause/resume, 'k' block jumphost, 'u' unblock jumphost, '+' more logs, '-' fewer logs.")
+    sshmap_logger.display(
+        "Hotkeys: 'p' pause/resume, 'a' add worker, 'r' remove worker, "
+        "'k' block jumphost, 'u' unblock jumphost, '+' more logs, '-' fewer logs."
+    )
     return listener_thread
 
 
@@ -699,7 +722,7 @@ async def async_main(args):
     active_task_counts = {}
     active_jump_host_display_limit = 25
     last_completed_at = time.monotonic()
-    pause_controller = ScanPauseController()
+    pause_controller = ScanPauseController(args.maxworkers)
     pause_listener = start_pause_key_listener(pause_controller)
     scan_origin_host = initial_jump_host
     if args.ordered_targets:
@@ -769,16 +792,17 @@ async def async_main(args):
 
         update_scan_summary()
 
-        semaphore = asyncio.Semaphore(args.maxworkers)
-
-        async def tracked_worker():
+        async def tracked_worker(retire_event):
             nonlocal initial_jump_session
             while True:
                 has_task = False
                 current_target = None
                 active_progress_host = None
                 try:
-                    await pause_controller.wait_if_paused()
+                    if retire_event.is_set():
+                        return
+                    if not await pause_controller.wait_if_paused(retire_event):
+                        return
 
                     pending_block_requests = pause_controller.drain_block_requests()
                     for blocked_host in pending_block_requests:
@@ -794,7 +818,12 @@ async def async_main(args):
                                 progress.update(task_id, total=new_total)
                         update_scan_summary()
 
-                    target, depth, queued_jump = await queue.get()
+                    try:
+                        target, depth, queued_jump = await asyncio.wait_for(
+                            queue.get(), timeout=0.2
+                        )
+                    except asyncio.TimeoutError:
+                        continue
                     current_target = target
                     has_task = True
 
@@ -855,30 +884,29 @@ async def async_main(args):
 
                     await pause_controller.wait_if_paused()
 
-                    async with semaphore:
-                        await handle_target(
-                            target,
-                            args.maxworkers_ssh,
-                            credential_store,
-                            depth,
-                            jumper,
-                            jump_host,
-                            queue,
-                            blacklist_ips if not force_targets_mode else [],
-                            whitelist_ips if not force_targets_mode else None,
-                            progress,
-                            task_ids,
-                            ssh_session_manager,
-                            args.max_retries,
-                            args.force_rescan,
-                            force_targets_mode,
-                            force_targets_ips,
-                            extra_recursive_targets,
-                            proxy_url=args.proxy,
-                            pause_controller=pause_controller,
-                            scan_origin_host=scan_origin_host,
-                            record_closed_port_attempts=args.record_closed_port_attempts,
-                        )
+                    await handle_target(
+                        target,
+                        args.maxworkers_ssh,
+                        credential_store,
+                        depth,
+                        jumper,
+                        jump_host,
+                        queue,
+                        blacklist_ips if not force_targets_mode else [],
+                        whitelist_ips if not force_targets_mode else None,
+                        progress,
+                        task_ids,
+                        ssh_session_manager,
+                        args.max_retries,
+                        args.force_rescan,
+                        force_targets_mode,
+                        force_targets_ips,
+                        extra_recursive_targets,
+                        proxy_url=args.proxy,
+                        pause_controller=pause_controller,
+                        scan_origin_host=scan_origin_host,
+                        record_closed_port_attempts=args.record_closed_port_attempts,
+                    )
 
                     if current_jump in task_ids:
                         progress.update(task_ids[current_jump], advance=1)
@@ -902,21 +930,56 @@ async def async_main(args):
                             refresh_visible_jump_tasks()
                         update_scan_summary()
 
-        workers = [
-            asyncio.create_task(tracked_worker()) for _ in range(args.maxworkers)
-        ]
+        workers = []
 
+        def resize_worker_pool():
+            workers[:] = [worker for worker in workers if not worker["task"].done()]
+            desired_count = pause_controller.worker_count
+            active_workers = [
+                worker for worker in workers if not worker["retire_event"].is_set()
+            ]
+
+            if len(active_workers) > desired_count:
+                for worker in active_workers[desired_count:]:
+                    worker["retire_event"].set()
+            elif len(active_workers) < desired_count:
+                retired_workers = [
+                    worker for worker in workers if worker["retire_event"].is_set()
+                ]
+                for worker in retired_workers[: desired_count - len(active_workers)]:
+                    worker["retire_event"].clear()
+                active_count = sum(
+                    not worker["retire_event"].is_set() for worker in workers
+                )
+                for _ in range(desired_count - active_count):
+                    retire_event = threading.Event()
+                    workers.append({
+                        "task": asyncio.create_task(tracked_worker(retire_event)),
+                        "retire_event": retire_event,
+                    })
+
+        resize_worker_pool()
+
+        queue_join = None
         try:
-            await queue.join()
+            queue_join = asyncio.create_task(queue.join())
+            while not queue_join.done():
+                resize_worker_pool()
+                await asyncio.wait((queue_join,), timeout=0.2)
+            await queue_join
         except KeyboardInterrupt:
             sshmap_logger.warn("Ctrl+C received! Cancelling...")
         finally:
             pause_controller.stop_event.set()
             if pause_listener and pause_listener.is_alive():
                 pause_listener.join(timeout=0.5)
-            for w in workers:
-                w.cancel()
-            await asyncio.gather(*workers, return_exceptions=True)
+            if queue_join is not None and not queue_join.done():
+                queue_join.cancel()
+                await asyncio.gather(queue_join, return_exceptions=True)
+            worker_tasks = [worker["task"] for worker in workers]
+            for worker_task in worker_tasks:
+                worker_task.cancel()
+            await asyncio.gather(*worker_tasks, return_exceptions=True)
             if graph is not None:
                 graph.close()
 

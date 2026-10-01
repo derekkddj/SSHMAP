@@ -1,4 +1,5 @@
 import pytest
+import importlib.util
 from unittest.mock import MagicMock, patch, AsyncMock
 import argparse
 import asyncio
@@ -7,6 +8,24 @@ import sys
 
 # Import logic to test
 from sshmap_execute import main, async_main
+
+
+def test_scan_pause_controller_adjusts_worker_count():
+    from pathlib import Path
+
+    scanner_path = Path(__file__).resolve().parents[1] / "SSHMAP.py"
+    spec = importlib.util.spec_from_file_location("sshmap_scanner", scanner_path)
+    scanner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scanner)
+    ScanPauseController = scanner.ScanPauseController
+
+    controller = ScanPauseController(worker_count=2)
+
+    assert controller.adjust_workers(1) == 3
+    assert controller.adjust_workers(-1) == 2
+    assert controller.adjust_workers(-10) == 1
+    assert controller.worker_count == 1
+
 
 def test_interactive_shell_validation():
     # Test main() validation logic
