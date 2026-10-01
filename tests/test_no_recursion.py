@@ -1,8 +1,15 @@
+import importlib.util
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-import SSHMAP
+
+spec = importlib.util.spec_from_file_location(
+    "sshmap_main", Path(__file__).resolve().parents[1] / "SSHMAP.py"
+)
+SSHMAP = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(SSHMAP)
 
 
 def test_no_recursion_skips_neo4j_and_forces_single_depth():
