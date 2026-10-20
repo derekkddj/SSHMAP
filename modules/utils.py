@@ -54,7 +54,7 @@ def validate_proxy_url(proxy_url):
     except (TypeError, ValueError) as e:
         raise argparse.ArgumentTypeError(f"Invalid proxy URL: {e}") from e
 
-    if not parsed.scheme:
+    if not parsed.scheme or not isinstance(proxy_url, str) or "://" not in proxy_url:
         raise argparse.ArgumentTypeError(
             "Proxy URL must include a scheme, e.g. socks5://127.0.0.1:9050 "
             "or http://127.0.0.1:8080"
