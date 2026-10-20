@@ -1309,6 +1309,12 @@ function applyFilters() {
     // Filter edges by user/method
     let filteredEdges = workingEdges;
     filteredEdges = applyEdgeAttributeFilters(filteredEdges);
+    if (filterState.hopEdgeMode === 'tree' &&
+            !(hopSourceNodeId !== null && filterState.selectedNodeHops > 0)) {
+        totalAvailableOverride = filteredEdges.length;
+        totalAvailableLabel = 'collapsed edges';
+        filteredEdges = getGlobalTreeEdges(filteredEdges);
+    }
 
     // Limit edges by recency (most recent first) - skip if hop filtering is active with a selected node
     const edgesBeforeLimit = filteredEdges.length;
@@ -1486,6 +1492,39 @@ function applyEdgeAttributeFilters(edgeList) {
 function scheduleApplyFilters() {
     clearTimeout(filterApplyTimeout);
     filterApplyTimeout = setTimeout(applyFilters, 120);
+}
+
+// A directed spanning forest: prefer source-only roots, then seed remaining
+// cycles/components. Mark on discovery to suppress parallel and back edges.
+function getGlobalTreeEdges(edgeList) {
+    const adjacency = new Map();
+    const incoming = new Set();
+    edgeList.forEach(edge => {
+        if (edge.from === edge.to) return;
+        if (!adjacency.has(edge.from)) adjacency.set(edge.from, []);
+        adjacency.get(edge.from).push(edge);
+        incoming.add(edge.to);
+    });
+    adjacency.forEach(candidateEdges => candidateEdges.sort(compareHopEdges));
+    const roots = Array.from(adjacency.keys()).sort((a, b) =>
+        Number(incoming.has(a)) - Number(incoming.has(b)) || a - b
+    );
+    const visited = new Set();
+    const forest = [];
+    roots.forEach(root => {
+        if (visited.has(root)) return;
+        visited.add(root);
+        const queue = [root];
+        for (let index = 0; index < queue.length; index += 1) {
+            (adjacency.get(queue[index]) || []).forEach(edge => {
+                if (visited.has(edge.to)) return;
+                visited.add(edge.to);
+                forest.push(edge);
+                queue.push(edge.to);
+            });
+        }
+    });
+    return forest;
 }
 
 function getHopTraversal(startNodeId, maxHops, edgeList) {

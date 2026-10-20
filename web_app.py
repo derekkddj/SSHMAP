@@ -196,11 +196,104 @@ def _validate_import_payload(payload):
     return normalized_nodes, normalized_edges
 
 
+def _get_global_tree_edges(session, users, methods, edge_limit, node_limit):
+    """Collapse directed topology before loading credential-rich relationships.
+
+    Bound the topology transfer independently of display limits. Neo4j still has
+    to scan matching relationships for DISTINCT, but parallel credentials do not
+    consume this budget or require collecting all relationships in Python.
+    """
+    conditions = ['id(a) <> id(b)']
+    if users:
+        conditions.append('r.user IN $users')
+    if methods:
+        conditions.append('r.method IN $methods')
+    topology = list(session.run(
+        f"""
+            MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
+            WHERE {' AND '.join(conditions)}
+            RETURN DISTINCT id(a) AS from_id, id(b) AS to_id
+            ORDER BY from_id, to_id
+            LIMIT $topology_limit
+        """,
+        users=users, methods=methods,
+        topology_limit=MAX_GRAPH_EDGE_LIMIT + 1,
+    ))
+    truncated = len(topology) > MAX_GRAPH_EDGE_LIMIT
+    adjacency = {}
+    incoming = set()
+    for record in topology[:MAX_GRAPH_EDGE_LIMIT]:
+        adjacency.setdefault(record['from_id'], []).append(record['to_id'])
+        incoming.add(record['to_id'])
+
+    # Source-only roots first (including ID 0), then seed any remaining cycles
+    # or disconnected components. Never reverse an access edge for traversal.
+    roots = sorted(adjacency, key=lambda node_id: (node_id in incoming, node_id))
+    visited = set()
+    pairs = []
+    for root in roots:
+        if root in visited:
+            continue
+        # Do not count an isolated seed against the display's connected nodes.
+        queue = [root]
+        visited.add(root)
+        queue_index = 0
+        while queue_index < len(queue):
+            source = queue[queue_index]
+            queue_index += 1
+            for target in adjacency.get(source, []):
+                if target in visited:
+                    continue
+                pairs.append({'from_id': source, 'to_id': target})
+                visited.add(target)
+                queue.append(target)
+
+    selected_pairs = []
+    displayed_nodes = set()
+    for pair in pairs:
+        new_nodes = {pair['from_id'], pair['to_id']} - displayed_nodes
+        if (len(selected_pairs) >= edge_limit or
+                len(displayed_nodes) + len(new_nodes) > node_limit):
+            truncated = True
+            break
+        selected_pairs.append(pair)
+        displayed_nodes.update(new_nodes)
+    if not selected_pairs:
+        return [], truncated
+
+    records = session.run(
+        """
+            UNWIND $pairs AS pair
+            CALL {
+                WITH pair
+                MATCH (a:Host)-[r:SSH_ACCESS]->(b:Host)
+                WHERE id(a) = pair.from_id AND id(b) = pair.to_id
+                  AND ($users = [] OR r.user IN $users)
+                  AND ($methods = [] OR r.method IN $methods)
+                RETURN a, b, r
+                ORDER BY coalesce(r.disabled, false) ASC, r.time DESC, id(r)
+                LIMIT 1
+            }
+            RETURN id(a) AS from_id, id(b) AS to_id, id(r) AS edge_id,
+                   a.hostname AS from_hostname, b.hostname AS to_hostname,
+                   r.user AS user, r.method AS method, r.creds AS creds,
+                   r.ip AS ip, r.port AS port, r.time AS time,
+                   coalesce(r.disabled, false) AS disabled
+            ORDER BY r.time DESC
+        """,
+        pairs=selected_pairs, users=users, methods=methods,
+    )
+    return list(records), truncated
+
+
 def _get_graph_edges(
     session, users, methods, edge_limit, node_limit, source_node_id=None,
     max_hops=1, edge_mode='tree'
 ):
     """Return a bounded set of relationships, optionally expanding from one host."""
+    if source_node_id is None and edge_mode == 'tree':
+        return _get_global_tree_edges(session, users, methods, edge_limit, node_limit)
+
     edge_records = []
     seen_edge_ids = set()
     frontier = [source_node_id] if source_node_id is not None else None
