@@ -6,6 +6,7 @@ from .config import CONFIG
 import random
 import uuid
 import asyncssh
+from .attempt_status import ATTEMPT_STATUSES, classify_attempt_error
 
 
 class Result:
@@ -53,7 +54,8 @@ def _get_reusable_connections(previous_connections, host, port):
 
 
 async def try_single_credential(
-    host, port, credential, jumper=None, credential_store=None, ssh_session_manager=None, proxy_url=None
+    host, port, credential, jumper=None, credential_store=None, ssh_session_manager=None, proxy_url=None,
+    _outcome=None,
 ):
     """Class to attempt a single credential authentication.
     This function tries to authenticate using either a password or a keyfile.
@@ -72,6 +74,9 @@ async def try_single_credential(
     Returns:
         Result or None: Result object if authentication is successful, None otherwise.
     """
+    # Optional per-call metadata keeps Result/None and ConnectionLost APIs intact.
+    status = "unknown"
+    ssh = None
     attempt_id = str(uuid.uuid4())[:10]  # Use first 10 chars for readability
     jumper_info = f"{jumper.get_remote_hostname()}@{jumper.get_host()}" if jumper else "direct"
     
@@ -113,18 +118,22 @@ async def try_single_credential(
                         ssh.get_remote_hostname(), ssh, user, "password", password
                     )
 
+                    status = "success"
                     return Result(user, "password", nssh, password)
             except asyncio.TimeoutError:
+                status = "timeout"  # Includes the outer wait_for deadline.
                 sshmap_logger.debug(
                     f"[{attempt_id}] {user}:{password}@{host}:{port} via {jumper_info} - Timeout"
                 )
                 return None
             except asyncssh.ConnectionLost as e:
+                status = classify_attempt_error(e, ssh is not None and getattr(ssh, "authenticated", False) is True)
                 sshmap_logger.debug(
                     f"[{attempt_id}] {user}:{password}@{host}:{port} via {jumper_info} - ConnectionLost: {e}"
                 )
                 raise  # Re-raise for retry logic
             except Exception as e:
+                status = classify_attempt_error(e, ssh is not None and getattr(ssh, "authenticated", False) is True)
                 sshmap_logger.debug(
                     f"[{attempt_id}] {user}:{password}@{host}:{port} via {jumper_info} - {type(e).__name__}: {e}"
                 )
@@ -160,18 +169,22 @@ async def try_single_credential(
                         ssh.get_remote_hostname(), ssh, user, "keyfile", keyfile
                     )
 
+                    status = "success"
                     return Result(user, "keyfile", nssh, keyfile)
             except asyncio.TimeoutError:
+                status = "timeout"  # Includes the outer wait_for deadline.
                 sshmap_logger.debug(
                     f"[{attempt_id}] {user}:{keyfile_name}@{host}:{port} via {jumper_info} - Timeout"
                 )
                 return None
             except asyncssh.ConnectionLost as e:
+                status = classify_attempt_error(e, ssh is not None and getattr(ssh, "authenticated", False) is True)
                 sshmap_logger.debug(
                     f"[{attempt_id}] {user}:{keyfile_name}@{host}:{port} via {jumper_info} - ConnectionLost: {e}"
                 )
                 raise  # Re-raise for retry logic
             except Exception as e:
+                status = classify_attempt_error(e, ssh is not None and getattr(ssh, "authenticated", False) is True)
                 sshmap_logger.debug(
                     f"[{attempt_id}] {user}:{keyfile_name}@{host}:{port} via {jumper_info} - {type(e).__name__}: {e}"
                 )
@@ -186,6 +199,13 @@ async def try_single_credential(
         sshmap_logger.error(
             f"[{attempt_id}] {user}@{host}:{port} via {jumper_info} - {type(e).__name__}: {e}"
         )
+    finally:
+        if status == "unknown" and ssh is not None:
+            session_status = getattr(ssh, "attempt_status", None)
+            if isinstance(session_status, str) and session_status in ATTEMPT_STATUSES:
+                status = session_status
+        if _outcome is not None:
+            _outcome["status"] = status
     return None
 
 
@@ -289,15 +309,24 @@ async def try_all(
                 )
                 await asyncio.sleep(0.5 * retry_attempt)  # Exponential backoff
             
-            result = await try_single_credential(
-                host,
-                port,
-                credential,
-                jumper=jumper,
-                credential_store=credential_store,
-                ssh_session_manager=ssh_session_manager,
-                proxy_url=proxy_url
-            )
+            outcome = {}
+            transient_error = None
+            try:
+                result = await try_single_credential(
+                    host,
+                    port,
+                    credential,
+                    jumper=jumper,
+                    credential_store=credential_store,
+                    ssh_session_manager=ssh_session_manager,
+                    proxy_url=proxy_url,
+                    _outcome=outcome,
+                )
+            except asyncssh.ConnectionLost as e:
+                # Record every transient failure, including retry exhaustion.
+                result = None
+                transient_error = e
+                outcome.setdefault("status", "connection_failed")
             
             # Record the attempt in the database (if enabled in config)
             # SQLite is fast but we give it a generous timeout for high concurrency
@@ -315,12 +344,15 @@ async def try_all(
                         credential.method,
                         credential.secret,
                         result is not None,
+                        status="success" if result is not None else outcome.get("status", "unknown"),
                     )
                 except Exception as e:
                     sshmap_logger.debug(
                         f"[ATTEMPT_STORE] Failed to record: {type(e).__name__}: {e}"
                     )
             
+            if transient_error is not None:
+                raise transient_error
             return result
 
     # Launch all credential attempts
@@ -453,15 +485,7 @@ async def try_all(
                     try:
                         # Use asyncio.wait_for to add timeout protection
                         result = await asyncio.wait_for(
-                            try_single_credential(
-                                host,
-                                port,
-                                cred,
-                                jumper=jumper,
-                                credential_store=credential_store,
-                                ssh_session_manager=ssh_session_manager,
-                                proxy_url=proxy_url
-                            ),
+                            limited_try(cred),
                             timeout=CONFIG["scan_timeout"] * 2  # Give fallback 2x normal timeout
                         )
                         return result, target_conn

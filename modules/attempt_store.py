@@ -3,6 +3,7 @@ import os
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from .logger import sshmap_logger
+from .attempt_status import ATTEMPT_STATUSES
 
 
 class AttemptStore:
@@ -51,10 +52,19 @@ class AttemptStore:
                 method TEXT NOT NULL,
                 credential TEXT NOT NULL,
                 success BOOLEAN NOT NULL,
+                status TEXT NOT NULL DEFAULT 'unknown',
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
+        # Serialize migration inspection and backfill across store instances.
+        cursor.execute("BEGIN IMMEDIATE")
+        # Additive migration: retain every legacy row, including duplicates.
+        columns = {row[1] for row in cursor.execute("PRAGMA table_info(ssh_attempts)")}
+        if "status" not in columns:
+            cursor.execute("ALTER TABLE ssh_attempts ADD COLUMN status TEXT NOT NULL DEFAULT 'unknown'")
+            cursor.execute("UPDATE ssh_attempts SET status = 'success' WHERE success = 1")
+
         # Create index for quick lookups
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_attempt_lookup 
@@ -85,8 +95,13 @@ class AttemptStore:
         method: str,
         credential: str,
         success: bool,
+        status: str = None,
     ):
-        """Record an SSH attempt asynchronously."""
+        """Record latest status/time; success remains true once a tuple succeeds.
+
+        Unclassified failures from older callers are unknown and remain retryable.
+        """
+        status = self._validate_status(success, status)
         # Run the database write in a thread pool to avoid blocking
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(
@@ -100,7 +115,18 @@ class AttemptStore:
             method,
             credential,
             success,
+            status,
         )
+
+    @staticmethod
+    def _validate_status(success, status):
+        if status is None:
+            status = "success" if success else "unknown"
+        if status not in ATTEMPT_STATUSES:
+            raise ValueError(f"Invalid SSH attempt status: {status}")
+        if bool(success) != (status == "success"):
+            raise ValueError("success must agree with the latest attempt status")
+        return status
 
     def _record_attempt_sync(
         self,
@@ -112,8 +138,10 @@ class AttemptStore:
         method: str,
         credential: str,
         success: bool,
+        status: str = None,
     ):
         """Synchronously record an SSH attempt."""
+        status = self._validate_status(success, status)
         try:
             conn = sqlite3.connect(self.db_path, timeout=self._busy_timeout_ms / 1000)
             # Configure for high concurrency
@@ -121,12 +149,13 @@ class AttemptStore:
             conn.execute("PRAGMA synchronous=NORMAL")
             
             cursor = conn.cursor()
+            cursor.execute("BEGIN IMMEDIATE")
             
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO ssh_attempts
-                (source_hostname, target_hostname, target_ip, target_port, username, method, credential, success)
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                (source_hostname, target_hostname, target_ip, target_port, username, method, credential, success, status)
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
                 WHERE NOT EXISTS (
                     SELECT 1 FROM ssh_attempts
                     WHERE source_hostname = ?
@@ -146,6 +175,7 @@ class AttemptStore:
                     method,
                     credential,
                     success,
+                    status,
                     source_hostname,
                     target_ip,
                     target_port,
@@ -155,29 +185,21 @@ class AttemptStore:
                 ),
             )
 
-            if success:
-                cursor.execute(
-                    """
-                    UPDATE ssh_attempts
-                    SET success = 1, target_hostname = ?
-                    WHERE source_hostname = ?
-                      AND target_ip = ?
-                      AND target_port = ?
-                      AND username = ?
-                      AND method = ?
-                      AND credential = ?
-                      AND success = 0
-                    """,
-                    (
-                        target_hostname,
-                        source_hostname,
-                        target_ip,
-                        target_port,
-                        username,
-                        method,
-                        credential,
-                    ),
-                )
+            # BEGIN IMMEDIATE serializes the read/insert/update fallback even
+            # when legacy duplicates prevented creating the unique index.
+            # Update all matching legacy rows without deleting historical data.
+            cursor.execute(
+                """
+                UPDATE ssh_attempts
+                SET success = MAX(success, ?), status = ?,
+                    target_hostname = CASE WHEN ? OR success = 0 THEN ? ELSE target_hostname END,
+                    timestamp = CURRENT_TIMESTAMP
+                WHERE source_hostname = ? AND target_ip = ? AND target_port = ?
+                  AND username = ? AND method = ? AND credential = ?
+                """,
+                (success, status, success, target_hostname, source_hostname,
+                 target_ip, target_port, username, method, credential),
+            )
             
             conn.commit()
             conn.close()
@@ -189,10 +211,10 @@ class AttemptStore:
     def get_attempted_credentials(
         self, source_hostname: str, target_ip: str, target_port: int
     ) -> set:
-        """Get all attempted (username, method, secret) tuples for a target.
-        
-        Returns a set of (username, method, credential) tuples that have been attempted.
-        Credentials are actual values stored in the database.
+        """Get tuples with a definitive latest success or authentication rejection.
+
+        Transport, timeout, session, and unknown failures are retried next scan.
+        The historical ever-success flag does not override the latest status.
         """
         try:
             conn = sqlite3.connect(self.db_path, timeout=self._busy_timeout_ms / 1000)
@@ -203,6 +225,7 @@ class AttemptStore:
                 SELECT DISTINCT username, method, credential
                 FROM ssh_attempts
                 WHERE source_hostname = ? AND target_ip = ? AND target_port = ?
+                  AND status IN ('success', 'auth_failed')
                 """,
                 (source_hostname, target_ip, target_port),
             )

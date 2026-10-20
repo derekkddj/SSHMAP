@@ -550,6 +550,7 @@ async def handle_target(
                             method="port_closed",
                             credential="closed",
                             success=False,
+                            status="connection_failed",
                         )
                         sshmap_logger.debug(
                             f"[{target}:{port}] Recorded closed-port attempt marker for {source_host}."

@@ -226,6 +226,8 @@ def preload_key(key_filename):
 
 # ssh_client is an instance of SSHSession
 async def get_remote_hostname(ssh_client):
+    # Preserve the hostname/IP return API while exposing exhausted probe failure.
+    ssh_client._hostname_probe_failed = False
     sshmap_logger.debug("Getting remote hostname...")
     retries = 3
     for attempt in range(retries):
@@ -269,6 +271,7 @@ async def get_remote_hostname(ssh_client):
                 continue
 
     # If we get here, all retries failed
+    ssh_client._hostname_probe_failed = True
     sshmap_logger.warning(f"Failed to get hostname after {retries} attempts.")
     # Still try to return a valid hostname, use IP only as absolute last resort
     # For now, use IP but this indicates a problem

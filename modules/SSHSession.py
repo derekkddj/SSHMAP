@@ -8,6 +8,7 @@ import termios
 from .logger import NXCAdapter
 from .utils import get_remote_hostname, create_proxy_socket
 from .config import CONFIG
+from .attempt_status import classify_attempt_error
 
 
 class SSHSession:
@@ -40,6 +41,9 @@ class SSHSession:
         self.key_objects = key_objects
         self.attempt_id = attempt_id
         self._broken = False
+        self.authenticated = False
+        self.attempt_status = "unknown"
+        self.attempt_error = None
         self._on_broken = None
         # Disable asyncssh logging
         logging.getLogger("asyncssh").disabled = True
@@ -127,7 +131,11 @@ class SSHSession:
             raise
 
     async def connect(self):
-        """Connect to the host using asyncssh."""
+        """Connect, preserving the bool API and exposing classified attempt metadata."""
+        self.authenticated = False
+        self.attempt_status = "unknown"
+        self.attempt_error = None
+        self._hostname_probe_failed = False
         attempt_prefix = f"[{self.attempt_id}] " if self.attempt_id is not None else ""
         try:
             # Direct connection or via jumper (proxy)
@@ -142,7 +150,9 @@ class SSHSession:
                 pass 
                 
                 if self.key_filename:
-                    key_obj = self.key_objects.get(self.key_filename)
+                    key_obj = (self.key_objects or {}).get(self.key_filename)
+                    if key_obj is None:
+                        raise ValueError(f"No loaded SSH key: {self.key_filename}")
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
@@ -191,7 +201,9 @@ class SSHSession:
                 # Correction: asyncssh documentation says: "If a socket is provided, the host and port arguments are used only for host key verification."
                 
                 if self.key_filename:
-                    key_obj = self.key_objects.get(self.key_filename)
+                    key_obj = (self.key_objects or {}).get(self.key_filename)
+                    if key_obj is None:
+                        raise ValueError(f"No loaded SSH key: {self.key_filename}")
                     self.connection = await asyncssh.connect(
                         self.host,
                         connect_timeout=CONFIG["scan_timeout"],
@@ -220,6 +232,7 @@ class SSHSession:
                         sock=sock
                     )
 
+            self.authenticated = True
             # Small stabilization delay so command channels are ready
             await asyncio.sleep(0.1)
 
@@ -241,19 +254,23 @@ class SSHSession:
                 )
             else:
                 self.remote_hostname = await get_remote_hostname(self)
-            if self._broken or self.connection is None:
+            if self._broken or self.connection is None or getattr(self, "_hostname_probe_failed", False):
                 self.sshmap_logger.debug(
                     f"Connection to {self.host}:{self.port} broke while getting hostname"
                 )
+                self.attempt_status = "session_failed"
                 return False
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
             self.sshmap_logger.success(
                 f"{attempt_prefix}{self.user}:{cred_display} (hostname:{self.remote_hostname})"
             )
+            self.attempt_status = "success"
             return True
 
-        except asyncssh.PermissionDenied:
+        except asyncssh.PermissionDenied as e:
+            self.attempt_error = e
+            self.attempt_status = classify_attempt_error(e, self.authenticated)
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
             self.sshmap_logger.fail(
@@ -261,6 +278,8 @@ class SSHSession:
             )
             return False
         except asyncssh.ChannelOpenError as e:
+            self.attempt_error = e
+            self.attempt_status = classify_attempt_error(e, self.authenticated)
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
             jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
@@ -269,6 +288,8 @@ class SSHSession:
             )
             return False
         except asyncssh.ConnectionLost as e: # aqui aparecen muchos casos cuando hay mucha sobrecarga
+            self.attempt_error = e
+            self.attempt_status = classify_attempt_error(e, self.authenticated)
             # Re-raise ConnectionLost for retry logic in bruteforce.py
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
@@ -278,14 +299,24 @@ class SSHSession:
             )
             raise
         except Exception as e:
+            self.attempt_error = e
+            self.attempt_status = classify_attempt_error(e, self.authenticated)
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
             jumper_info = f"{self.jumper.get_remote_hostname()}@{self.jumper.get_host()}" if self.jumper else "direct"
             self.sshmap_logger.warning(
                 f"{attempt_prefix}{self.user}:{cred_display}@{self.host}:{self.port} via {jumper_info} - {type(e).__name__}: {self._format_error(e)}"
             )
-            self.connection = None
             return False
+        finally:
+            # A login followed by failed setup (or outer cancellation) must not
+            # leave an authenticated, untracked connection open.
+            if self.attempt_status != "success" and self.connection is not None:
+                try:
+                    await self.close()
+                except Exception as close_error:
+                    self.sshmap_logger.debug(f"Failed to close unsuccessful session: {close_error}")
+                    self.connection = None
 
     async def get_jumper(self):
         return self.jumper

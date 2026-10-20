@@ -18,6 +18,7 @@ class TestConnectionAttempts:
         yield store
         
         # Cleanup
+        store.close()
         if os.path.exists(db_path):
             os.unlink(db_path)
 
@@ -59,6 +60,7 @@ class TestConnectionAttempts:
                 method=method,
                 credential=cred,
                 success=False,
+                status="auth_failed",
             )
         
         # Verify all attempts were recorded
@@ -210,6 +212,7 @@ class TestConnectionAttempts:
             method="password",
             credential="secret456",
             success=False,
+            status="auth_failed",
         )
         
         # Get attempts for first target
