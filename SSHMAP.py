@@ -409,8 +409,8 @@ async def handle_target(
                         if graph is not None and getattr(ssh_conn, "_hostname_probe_failed", False):
                             try:
                                 known_hostname = graph.get_hostname_by_ip(target)
-                                if known_hostname:
-                                    remote_hostname = known_hostname
+                                if isinstance(known_hostname, str) and known_hostname.strip():
+                                    remote_hostname = known_hostname.strip()
                             except Exception as e:
                                 sshmap_logger.debug(
                                     f"[{target}:{port}] Could not resolve hostname fallback from graph: {e}"
