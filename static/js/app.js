@@ -336,11 +336,12 @@ function getLayoutOptions(layoutType) {
                     solver: 'barnesHut',
                     barnesHut: {
                         gravitationalConstant: isLarge ? -50000 : -30000,
-                        centralGravity: isLarge ? 0.5 : 0.3,
-                        springLength: isLarge ? 100 : 150,
+                        // Give dense graphs more room rather than pulling them into the center.
+                        centralGravity: isLarge ? 0.15 : 0.1,
+                        springLength: isLarge ? 300 : 250,
                         springConstant: isLarge ? 0.01 : 0.04,
                         damping: isLarge ? 0.3 : 0.2,
-                        avoidOverlap: isLarge ? 0.1 : 0.2
+                        avoidOverlap: 1
                     }
                 }
             };
