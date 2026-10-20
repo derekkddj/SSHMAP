@@ -787,6 +787,7 @@ def get_node(node_id):
                 MATCH (h:Host)-[r:SSH_ACCESS]->(target:Host)
                 WHERE id(h) = $node_id
                 RETURN id(r) AS edge_id, target.hostname AS target, r.user AS user,
+                       target.interfaces AS peer_interfaces, r.creds AS creds,
                        r.method AS method, r.ip AS ip, r.port AS port,
                        coalesce(r.disabled, false) AS disabled
                 LIMIT 200
@@ -797,6 +798,7 @@ def get_node(node_id):
                 MATCH (source:Host)-[r:SSH_ACCESS]->(h:Host)
                 WHERE id(h) = $node_id
                 RETURN id(r) AS edge_id, source.hostname AS source, r.user AS user,
+                       source.interfaces AS peer_interfaces, r.creds AS creds,
                        r.method AS method, r.ip AS ip, r.port AS port,
                        coalesce(r.disabled, false) AS disabled
                 LIMIT 200

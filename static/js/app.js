@@ -634,7 +634,7 @@ function displayNodeDetails(data) {
             </div>
             <div class="info-item">
                 <strong>Interfaces:</strong>
-                <span>${data.interfaces.length > 0 ? data.interfaces.map(i => escapeHtml(i)).join('<br>') : 'N/A'}</span>
+                <span>${data.interfaces && data.interfaces.length > 0 ? data.interfaces.map(i => escapeHtml(i)).join('<br>') : 'N/A'}</span>
             </div>
         </div>
         
@@ -642,65 +642,75 @@ function displayNodeDetails(data) {
             <h3>⚡ Execute Command</h3>
             <div class="command-exec-container">
                 <input type="text" id="commandInput" placeholder="Enter command (e.g., ls -la, whoami)" class="command-input" />
-                <button class="btn btn-primary" onclick="executeCommand('${escapeHtml(data.hostname)}')" style="width: 100%; margin-top: 10px;">🚀 Execute</button>
+                <button id="nodeExecuteButton" class="btn btn-primary" style="width: 100%; margin-top: 10px;">🚀 Execute</button>
                 <div id="commandOutput" class="command-output" style="display: none;"></div>
             </div>
         </div>
     `;
     
-    if (data.outgoing_connections && data.outgoing_connections.length > 0) {
-        html += `
-            <div class="info-section">
-                <h3>📤 Outgoing Connections (${data.outgoing_connections.length})</h3>
-                <div class="connection-list">
-        `;
-        
-        data.outgoing_connections.forEach(conn => {
-            html += `
-                <div class="connection-item" style="cursor: pointer;" onclick="focusOnEdge(${conn.edge_id})" title="Click to focus on this connection">
-                    <strong>→ ${escapeHtml(conn.target)}</strong><br>
-                    User: ${escapeHtml(conn.user)}<br>
-                    IP: ${escapeHtml(conn.ip)}:${conn.port}<br>
-                    Method: ${escapeHtml(conn.method)}<br>
-                    Status: ${conn.disabled ? '<span style="color:#ef4444;">Disabled</span>' : 'Enabled'}
-                    ${renderEdgeToggleButton(conn.edge_id, conn.disabled)}
-                </div>
-            `;
-        });
-        
-        html += `
-                </div>
-            </div>
-        `;
-    }
-    
-    if (data.incoming_connections && data.incoming_connections.length > 0) {
-        html += `
-            <div class="info-section">
-                <h3>📥 Incoming Connections (${data.incoming_connections.length})</h3>
-                <div class="connection-list">
-        `;
-        
-        data.incoming_connections.forEach(conn => {
-            html += `
-                <div class="connection-item" style="cursor: pointer;" onclick="focusOnEdge(${conn.edge_id})" title="Click to focus on this connection">
-                    <strong>← ${escapeHtml(conn.source)}</strong><br>
-                    User: ${escapeHtml(conn.user)}<br>
-                    IP: ${escapeHtml(conn.ip)}:${conn.port}<br>
-                    Method: ${escapeHtml(conn.method)}<br>
-                    Status: ${conn.disabled ? '<span style="color:#ef4444;">Disabled</span>' : 'Enabled'}
-                    ${renderEdgeToggleButton(conn.edge_id, conn.disabled)}
-                </div>
-            `;
-        });
-        
-        html += `
-                </div>
-            </div>
-        `;
-    }
-    
+    html += renderNodeConnections(data.outgoing_connections || [], 'outgoing');
+    html += renderNodeConnections(data.incoming_connections || [], 'incoming');
     container.innerHTML = html;
+    document.getElementById('nodeExecuteButton').addEventListener('click', () => executeCommand(data.hostname));
+    bindNodeConnectionFilter(data.outgoing_connections || [], 'outgoing');
+    bindNodeConnectionFilter(data.incoming_connections || [], 'incoming');
+}
+
+// Only peer hostnames and IPs participate in these local filters, never credentials.
+function nodeConnectionMatches(conn, direction, query) {
+    const needle = query.trim().toLowerCase();
+    const interfaces = Array.isArray(conn.peer_interfaces) ? conn.peer_interfaces : [];
+    return [direction === 'outgoing' ? conn.target : conn.source, conn.ip, ...interfaces]
+        .some(value => String(value ?? '').toLowerCase().includes(needle));
+}
+
+function renderNodeConnections(connections, direction) {
+    if (connections.length === 0) return '';
+    const outgoing = direction === 'outgoing';
+    const label = outgoing ? 'Outgoing' : 'Incoming';
+    return `
+        <div class="info-section">
+            <h3>${outgoing ? '📤' : '📥'} ${label} Connections (${escapeHtml(connections.length)})</h3>
+            <input id="${direction}ConnectionFilter" type="search" class="command-input connection-filter"
+                placeholder="Filter IP / hostname" aria-label="Filter ${label.toLowerCase()} connections by IP or hostname" />
+            <div id="${direction}ConnectionList" class="connection-list">
+                ${connections.map(conn => `
+                    <div class="connection-item" style="cursor: pointer;" title="Click to focus on this connection">
+                        <strong>${outgoing ? '→' : '←'} ${escapeHtml(outgoing ? conn.target : conn.source)}</strong><br>
+                        User: ${escapeHtml(conn.user ?? 'N/A')}<br>
+                        IP: ${escapeHtml(conn.ip ?? 'N/A')}:${escapeHtml(conn.port ?? 'N/A')}<br>
+                        Method: ${escapeHtml(conn.method ?? 'N/A')}<br>
+                        Credentials: <span class="connection-credential">${escapeHtml(conn.creds ?? 'N/A')}</span><br>
+                        Status: ${conn.disabled ? '<span style="color:#ef4444;">Disabled</span>' : 'Enabled'}
+                        ${renderEdgeToggleButton(conn.edge_id, conn.disabled)}
+                    </div>
+                `).join('')}
+            </div>
+            <div id="${direction}ConnectionNoMatches" class="connection-no-matches" role="status" hidden>No matching connections.</div>
+        </div>
+    `;
+}
+
+function bindNodeConnectionFilter(connections, direction) {
+    if (connections.length === 0) return;
+    const input = document.getElementById(`${direction}ConnectionFilter`);
+    const cards = document.getElementById(`${direction}ConnectionList`).querySelectorAll('.connection-item');
+    const feedback = document.getElementById(`${direction}ConnectionNoMatches`);
+    cards.forEach((card, index) => {
+        card.addEventListener('click', () => {
+            if (isDatabaseEdgeId(connections[index].edge_id)) {
+                focusOnEdge(Number(connections[index].edge_id));
+            }
+        });
+    });
+    input.addEventListener('input', () => {
+        let matches = 0;
+        cards.forEach((card, index) => {
+            card.hidden = !nodeConnectionMatches(connections[index], direction, input.value);
+            if (!card.hidden) matches++;
+        });
+        feedback.hidden = matches > 0;
+    });
 }
 
 // Load details for a specific edge

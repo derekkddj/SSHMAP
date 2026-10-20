@@ -656,6 +656,23 @@
             color: #e0e0e0;
         }
 
+        .command-input.connection-filter {
+            padding: 6px 8px;
+            margin-bottom: 8px;
+            font-size: 11px;
+        }
+
+        .connection-credential {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .connection-no-matches {
+            color: #9ca3af;
+            font-size: 11px;
+            padding: 8px 0;
+        }
+
         .loading {
             position: absolute;
             top: 50%;
@@ -1297,6 +1314,6 @@
     <datalist id="startHostnames"></datalist>
     <datalist id="endHostnames"></datalist>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}?v=global-tree-5"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}?v=global-tree-6"></script>
 </body>
 </html>
