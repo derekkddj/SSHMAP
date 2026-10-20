@@ -19,7 +19,7 @@ from rich.live import Live
 from modules.console import nxc_console
 from modules.SSHSessionManager import SSHSessionManager
 from modules.credential_store import CredentialStore
-from modules.utils import sanitize_filename_component
+from modules.utils import sanitize_filename_component, validate_proxy_url
 import subprocess
 
 console = nxc_console
@@ -266,6 +266,7 @@ def main():
     )
     parser.add_argument(
         "--proxy",
+        type=validate_proxy_url,
         help="SOCKS5/HTTP proxy URL (e.g., socks5://127.0.0.1:9050)",
         default=None
     )

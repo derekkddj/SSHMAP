@@ -16,6 +16,7 @@ from modules.logger import sshmap_logger, setup_debug_logging
 from modules.console import nxc_console
 from modules.SSHSessionManager import SSHSessionManager
 from modules.credential_store import CredentialStore
+from modules.utils import validate_proxy_url
 from modules.post_exploitation import ModuleRegistry
 from rich.progress import (
     Progress,
@@ -288,6 +289,7 @@ def main():
 
     parser.add_argument(
         "--proxy",
+        type=validate_proxy_url,
         help="SOCKS5/HTTP proxy URL (e.g., socks5://127.0.0.1:9050)",
         default=None
     )

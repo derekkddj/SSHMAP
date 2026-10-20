@@ -19,6 +19,7 @@ from modules.utils import (
     get_all_ips_in_subnet,
     read_list_from_file_or_string,
     load_keys,
+    validate_proxy_url,
 )
 from modules.credential_store import CredentialStore
 from argparse import RawTextHelpFormatter
@@ -1034,6 +1035,7 @@ def main():
     )
     parser.add_argument(
         "--proxy",
+        type=validate_proxy_url,
         help="SOCKS5/HTTP proxy URL (e.g., socks5://127.0.0.1:9050)",
         default=None
     )

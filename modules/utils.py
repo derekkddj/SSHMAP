@@ -1,3 +1,4 @@
+import argparse
 import socket
 import os
 import psutil
@@ -8,6 +9,7 @@ from .config import CONFIG
 import asyncio
 import asyncssh
 import socks  # PySocks
+from urllib.parse import urlparse
 
 
 _SAFE_FILENAME_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -45,6 +47,41 @@ def sanitize_filename_component(value: str, default: str = "unknown", max_len: i
 
     return text
 
+def validate_proxy_url(proxy_url):
+    """Validate and return a supported proxy URL for use with PySocks."""
+    try:
+        parsed = urlparse(proxy_url)
+    except (TypeError, ValueError) as e:
+        raise argparse.ArgumentTypeError(f"Invalid proxy URL: {e}") from e
+
+    if not parsed.scheme:
+        raise argparse.ArgumentTypeError(
+            "Proxy URL must include a scheme, e.g. socks5://127.0.0.1:9050 "
+            "or http://127.0.0.1:8080"
+        )
+
+    scheme = parsed.scheme.lower()
+    if scheme not in {"socks5", "socks4", "http"}:
+        raise argparse.ArgumentTypeError(
+            f"Unsupported proxy scheme '{parsed.scheme}'. Use socks5://, socks4://, or http://"
+        )
+
+    if not parsed.hostname:
+        raise argparse.ArgumentTypeError("Proxy URL must include a proxy hostname or IP address")
+
+    try:
+        port = parsed.port
+    except ValueError as e:
+        if "out of range" in str(e).lower():
+            raise argparse.ArgumentTypeError("Proxy port must be between 1 and 65535") from e
+        raise argparse.ArgumentTypeError(f"Invalid proxy URL port: {e}") from e
+
+    if port is not None and not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError("Proxy port must be between 1 and 65535")
+
+    return proxy_url
+
+
 def create_proxy_socket(proxy_url, target_host, target_port, timeout=None):
     """
     Creates a socket connected to the target host through the proxy.
@@ -52,7 +89,7 @@ def create_proxy_socket(proxy_url, target_host, target_port, timeout=None):
     Returns the connected socket.
     """
     try:
-        from urllib.parse import urlparse
+        validate_proxy_url(proxy_url)
         parsed = urlparse(proxy_url)
         
         proxy_type = socks.SOCKS5
