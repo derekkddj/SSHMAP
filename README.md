@@ -7,7 +7,7 @@ There is a cli tool to get the paths from one starting point to other machines, 
  $ sshmap --help                                                                
 usage: sshmap [-h] --targets TARGETS [--blacklist BLACKLIST] [--whitelist WHITELIST] [--force-targets FORCE_TARGETS] [--users USERS]
               [--passwords PASSWORDS] [--credentialspath CREDENTIALSPATH] [--keys KEYS] [--maxworkers MAXWORKERS]
-              [--maxworkers-ssh MAXWORKERS_SSH] [--max-retries MAX_RETRIES] [--maxdepth MAXDEPTH] [--no-recursion] [--force-rescan] [--debug] [--verbose]
+              [--maxworkers-ssh MAXWORKERS_SSH] [--max-retries MAX_RETRIES] [--maxdepth MAXDEPTH] [--no-recursion] [--force-rescan] [--known-ssh-only] [--debug] [--verbose]
               [--log] [--log-file LOG_FILE] [--start-from START_FROM]
 
     ███████╗███████╗██╗  ██╗███╗   ███╗ █████╗ ██████╗
@@ -46,7 +46,8 @@ options:
                         Maximum number of retries for transient connection failures
   --maxdepth MAXDEPTH   Max depth of the scan
   --no-recursion        Scan only the supplied targets directly without using Neo4j
-  --force-rescan        Force retry of already-attempted connections (ignore attempt history)
+  --force-rescan        Retry already-attempted credentials (does not override --known-ssh-only scope)
+  --known-ssh-only      Only scan origin/IP/port tuples with historical SSH authentication/session evidence (requires attempt tracking)
   --debug               enable debug level information
   --verbose             enable verbose output
   --log                 enable logging to file
@@ -122,7 +123,7 @@ max_depth: 1 #default max depth
 # Optional settings
 scan_timeout: 5        # Timeout for SSH connection attempts (in seconds)
 brute_new_credential: False # If True, every new credential will be saved as _bruteforce, so it will be used in next host regadless of the IP
-record_connection_attempts: True # If True, records all connection attempts (successful and failed) to Neo4j for tracking. Set to False for faster scans with thousands of attempts.
+record_connection_attempts: True # Record outcomes in SQLite and enable credential-history filtering; required by --known-ssh-only.
 credharvest_all_homes: False # credential_harvester: if True, enumerate other users' home dirs when readable
 ```
 
@@ -206,13 +207,31 @@ SSHMAP now tracks all connection attempts in sqlite and automatically skips alre
 
 **How it works:**
 - Tracks each connection attempt: `from_host → to_host` with specific credentials (user, method, password/key)
-- New credentials are automatically tried from **all known hosts** to **all targets**
-- Each unique combination is only attempted once (unless `--force-rescan` is used)
+- New credentials are automatically tried from **all known hosts** to **all targets**, unless an explicit scope such as `--known-ssh-only` restricts them.
+- Credential tuples whose latest status is `success` or `auth_failed` are skipped (unless `--force-rescan` is used). Transport failures, timeouts, session-setup failures, and unknown outcomes remain retryable.
+
+**Fast follow-up scan: only previously SSH-accessible destinations**
+
+```bash
+# Import a new credential and test it only where this same origin previously reached SSH.
+sshmap --targets wordlists/ips.txt --users newuser --passwords newpassword --known-ssh-only
+
+# Or add credentials to the CSV and use it without importing users/passwords/keys.
+sshmap --targets wordlists/ips.txt --credentialspath wordlists/credentials.csv --no-import-creds --known-ssh-only
+```
+
+`--known-ssh-only` is **off by default**. It checks the exact `(source_hostname, target_ip, target_port)` in the configured SQLite `attempt_db_path`, before port checks or credential testing. A destination qualifies if **any credential** ever produced `success`, `auth_failed` (SSH authentication rejection, not necessarily a wrong password), or `session_failed` (authentication completed but session/hostname setup failed). This persistent evidence survives subsequent transport failures/timeouts. An open TCP port alone, `connection_failed`, `timeout`, or `unknown` does not qualify.
+
+The scope applies to direct and proxy scans, `--start-from`, and every recursive jump host, using that scan's actual origin hostname. Evidence from one origin or port does not admit another; unidentified jump origins are excluded. With a proxy, the origin identity remains the scanner hostname (proxy URL is not part of the history key). No previous database/evidence means **no destinations qualify**; startup logs explain this and debug logs show each exclusion. The scope does not discover new destinations: it intersects the normal supplied/discovered targets with recorded evidence.
+
+Within this scope, existing credential filtering still skips latest `success` / `auth_failed` tuples and tests new eligible credentials. Existing graph-backed successful-path fallback/reuse is unchanged for qualifying destinations. `--force-rescan` ignores credential history but **does not override `--known-ssh-only`**. The option requires `record_connection_attempts: true`; disabling tracking produces a CLI error rather than guessing from incomplete history.
+
+Databases migrate additively without deleting rows: the new `ssh_reachable` flag is backfilled from historical `success = 1` or retained `success` / `auth_failed` / `session_failed` statuses. Authentication/session evidence already overwritten by a later failure **before this migration** cannot be recovered. Legacy failures without a classified status remain unknown and excluded unless another row provides evidence.
 
 **First run:**
 ```bash
 $ sshmap --targets wordlists/ips.txt --users wordlists/usernames.txt --passwords wordlists/passwords.txt --keys wordlists/keys/
-# All connection attempts are made and recorded in Neo4j
+# All connection attempts are made and recorded in SQLite
 ```
 
 **Subsequent runs with new credentials:**

@@ -53,6 +53,7 @@ class AttemptStore:
                 credential TEXT NOT NULL,
                 success BOOLEAN NOT NULL,
                 status TEXT NOT NULL DEFAULT 'unknown',
+                ssh_reachable BOOLEAN NOT NULL DEFAULT 0,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -64,6 +65,20 @@ class AttemptStore:
         if "status" not in columns:
             cursor.execute("ALTER TABLE ssh_attempts ADD COLUMN status TEXT NOT NULL DEFAULT 'unknown'")
             cursor.execute("UPDATE ssh_attempts SET status = 'success' WHERE success = 1")
+
+        # Preserve SSH evidence independently of the latest credential outcome.
+        # Older databases can only backfill evidence which is still present.
+        if "ssh_reachable" not in columns:
+            cursor.execute("ALTER TABLE ssh_attempts ADD COLUMN ssh_reachable BOOLEAN NOT NULL DEFAULT 0")
+            cursor.execute("""
+                UPDATE ssh_attempts SET ssh_reachable = 1
+                WHERE success = 1 OR status IN ('success', 'auth_failed', 'session_failed')
+            """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_known_ssh_lookup
+            ON ssh_attempts(source_hostname, target_ip, target_port)
+            WHERE ssh_reachable = 1
+        """)
 
         # Create index for quick lookups
         cursor.execute("""
@@ -97,7 +112,7 @@ class AttemptStore:
         success: bool,
         status: str = None,
     ):
-        """Record latest status/time; success remains true once a tuple succeeds.
+        """Record latest status/time, retaining ever-success and SSH evidence.
 
         Unclassified failures from older callers are unknown and remain retryable.
         """
@@ -192,12 +207,14 @@ class AttemptStore:
                 """
                 UPDATE ssh_attempts
                 SET success = MAX(success, ?), status = ?,
+                    ssh_reachable = MAX(ssh_reachable, ?),
                     target_hostname = CASE WHEN ? OR success = 0 THEN ? ELSE target_hostname END,
                     timestamp = CURRENT_TIMESTAMP
                 WHERE source_hostname = ? AND target_ip = ? AND target_port = ?
                   AND username = ? AND method = ? AND credential = ?
                 """,
-                (success, status, success, target_hostname, source_hostname,
+                (success, status, status in ('success', 'auth_failed', 'session_failed'),
+                 success, target_hostname, source_hostname,
                  target_ip, target_port, username, method, credential),
             )
             
@@ -207,6 +224,37 @@ class AttemptStore:
             sshmap_logger.debug(
                 f"[ATTEMPT_STORE] Failed to record attempt: {type(e).__name__}: {e}"
             )
+
+    def is_known_ssh_target(
+        self, source_hostname: str, target_ip: str, target_port: int
+    ) -> bool:
+        """Whether this exact origin/IP/port ever reached SSH authentication/session.
+
+        Independent of credential identity and latest status; errors fail closed.
+        A TCP port check, timeout, or unclassified failure is not SSH evidence.
+        """
+        if not source_hostname:
+            return False
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=self._busy_timeout_ms / 1000)
+            try:
+                return conn.execute(
+                    """
+                    SELECT 1 FROM ssh_attempts
+                    WHERE source_hostname = ? AND target_ip = ? AND target_port = ?
+                      AND ssh_reachable = 1
+                    LIMIT 1
+                    """,
+                    (source_hostname, target_ip, target_port),
+                ).fetchone() is not None
+            finally:
+                conn.close()
+        except Exception as e:
+            sshmap_logger.warning(
+                f"[KNOWN_SSH_ONLY] Cannot read SSH history for {source_hostname} -> "
+                f"{target_ip}:{target_port}: {type(e).__name__}: {e}. Excluding target."
+            )
+            return False
 
     def get_attempted_credentials(
         self, source_hostname: str, target_ip: str, target_port: int

@@ -129,7 +129,7 @@ sshmap --targets <file> \
        --maxworkers 100 \
        --maxworkers-ssh 25 \
        --maxdepth 5 \
-       [--force-rescan] \
+       [--force-rescan] [--known-ssh-only] \
        [--start-from <hostname>] \
        [--proxy socks5://127.0.0.1:9050] \
        [--blacklist <file>] \
@@ -319,20 +319,26 @@ CREATE TABLE ssh_attempts (
     credential TEXT NOT NULL,
     success BOOLEAN NOT NULL,
     status TEXT NOT NULL DEFAULT 'unknown',
+    ssh_reachable BOOLEAN NOT NULL DEFAULT 0,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX idx_attempt_unique ON ssh_attempts
     (source_hostname, target_ip, target_port, username, method, credential);
+CREATE INDEX idx_known_ssh_lookup ON ssh_attempts
+    (source_hostname, target_ip, target_port) WHERE ssh_reachable = 1;
 ```
 
 **Key Operations:**
 - `record_attempt(source, target, ip, port, user, method, cred, success, status=None)` - Record latest outcome and refresh timestamp; writes use a serialized executor.
 - `get_attempted_credentials(source, ip, port)` - Skip only latest `success` / `auth_failed` tuples (unless `--force-rescan`).
 - `get_successful_attempts(source, ip, port)` - Retrieve historically successful tuples; `success` remains true after any successful attempt, even if the latest status is a failure.
+- `is_known_ssh_target(source, ip, port)` - Indexed existence lookup for persistent SSH evidence from **any** credential on this exact origin/IP/port; missing origin or database read errors fail closed.
+
+`--known-ssh-only` (default off) gates `handle_target` before port checks/credential loading for direct, proxy, start-from, and recursive jobs. `ssh_reachable` becomes true on `success`, `auth_failed`, or `session_failed`, and never resets on later failures. Transport-only/timeout/unknown destinations are excluded. This is independent of latest-status credential filtering: eligible new credentials are tested normally, session failures remain retryable, and graph fallback/reuse remains available inside the scope. `--force-rescan` bypasses credential history, **not** this explicit destination scope. Unidentified jump origins cannot borrow the local origin's history. Proxy scans use the scanner hostname as origin (the proxy URL is not part of the key). An empty database/new origin excludes all destinations; startup/debug logs explain the scope/skips. CLI rejects the flag when `record_connection_attempts` is false. Compatible with `--no-import-creds` and `--no-recursion`.
 
 Statuses: `success`, `auth_failed` (remote authentication rejection, **not proof of a wrong password**; account policy or required methods may also cause it), `connection_failed` (SSH transport/proxy/closed port), `timeout` (including the outer attempt deadline), `session_failed` (login completed but hostname/session setup failed), and `unknown` (unclassified or local key/configuration error). Non-definitive statuses are retried next scan; ConnectionLost still receives in-scan transient retries and is recorded even when retries exhaust. The outer deadline takes precedence as `timeout`, including during post-login setup.
 
-Existing databases migrate additively: legacy successes become `success`, legacy failures become retryable `unknown`; old rows/timestamps are retained. Legacy duplicate tuples are preserved if they prevent creating the unique index; subsequent writes update all matching rows without inserting more duplicates. Omitting status remains supported: success maps to `success`, failure to `unknown`.
+Existing databases migrate additively: legacy successes become `success`, legacy failures become retryable `unknown`; old rows/timestamps are retained. Legacy duplicate tuples are preserved if they prevent creating the unique index; subsequent writes update all matching rows without inserting more duplicates. Omitting status remains supported: success maps to `success`, failure to `unknown`. The additive `ssh_reachable` migration backfills `success = 1` or retained `success` / `auth_failed` / `session_failed` statuses, preserving duplicates and timestamps. Pre-migration authentication/session evidence already overwritten by a later failure is unrecoverable; legacy unclassified failures do not prove SSH reachability.
 
 ---
 
@@ -972,7 +978,7 @@ sshmap --targets <file|IP|CIDR> \
        [--maxworkers-ssh <int>] \
        [--maxdepth <int>] \
        [--no-recursion] \
-       [--force-rescan] \
+       [--force-rescan] [--known-ssh-only] \
        [--start-from <hostname>] \
        [--blacklist <file>] \
        [--whitelist <file>] \

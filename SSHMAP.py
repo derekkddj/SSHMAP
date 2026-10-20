@@ -289,6 +289,7 @@ async def handle_target(
     pause_controller=None,
     scan_origin_host=None,
     record_closed_port_attempts=False,
+    known_ssh_only=False,
 ):
     try:
         if scan_origin_host is None:
@@ -304,6 +305,9 @@ async def handle_target(
             sshmap_logger.debug(f"Max depth {max_depth} reached. Skipping {target}")
             return
         source_host = jump_host if jump_host else scan_origin_host
+        if known_ssh_only and (jump is not None or current_depth > 1):
+            # An unidentified jump origin must not inherit local-origin evidence.
+            source_host = jump_host
         if jump is not None:
             sshmap_logger.info(
                 f"New handle_target with target:{target} with jump {jump} and current depth {current_depth} starting from {source_host}"
@@ -314,6 +318,17 @@ async def handle_target(
             )
 
         for port in ssh_ports:
+            # Scope is independent of force_rescan and must precede any probing.
+            if known_ssh_only and (
+                not source_host
+                or attempt_store is None
+                or not attempt_store.is_known_ssh_target(source_host, target, port)
+            ):
+                sshmap_logger.debug(
+                    f"[KNOWN_SSH_ONLY] Skipping {target}:{port} from {source_host or 'unknown origin'}: "
+                    "no historical SSH authentication/session evidence."
+                )
+                continue
             sshmap_logger.debug(f"Scanning {target} port {port}.")
             # We can not check open ports if we are using a jump host OR a proxy, so we just try to connect to all ports
             port_check_executed = False
@@ -567,7 +582,7 @@ async def handle_target(
         raise
 
 
-async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, whitelist_ips, force_targets_mode=False, force_targets_ips=None, proxy_url=None):
+async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, whitelist_ips, force_targets_mode=False, force_targets_ips=None, proxy_url=None, known_ssh_only=False):
     while True:
         try:
             target, depth, queued_jump = await queue.get()
@@ -593,6 +608,7 @@ async def worker(queue, semaphore, maxworkers, credential_store, blacklist_ips, 
                     force_targets_mode=force_targets_mode,
                     force_targets_ips=force_targets_ips,
                     proxy_url=proxy_url,
+                    known_ssh_only=known_ssh_only,
                 )
 
         except asyncio.CancelledError:
@@ -658,8 +674,15 @@ async def async_main(args):
             # otherwise, just remove blacklisted IPs
             new_targets = [ip for ip in targets if ip not in blacklist_ips]
     
+    if getattr(args, "known_ssh_only", False):
+        sshmap_logger.display(
+            f"Known SSH only enabled - restricting each origin/IP/port to historical SSH "
+            f"authentication/session evidence in {attempt_db_path}. "
+            "No prior evidence (including an empty database or a new origin) excludes all matching targets; "
+            "--force-rescan does not expand this scope."
+        )
     if args.force_rescan:
-        sshmap_logger.display("Force rescan enabled - retrying all connection attempts including previously attempted ones.")
+        sshmap_logger.display("Force rescan enabled - retrying all credential attempts within the selected target scope.")
     else:
         sshmap_logger.display("Smart scanning enabled - skipping already-attempted connections. Use --force-rescan to retry all.")
     
@@ -908,6 +931,7 @@ async def async_main(args):
                         pause_controller=pause_controller,
                         scan_origin_host=scan_origin_host,
                         record_closed_port_attempts=args.record_closed_port_attempts,
+                        known_ssh_only=getattr(args, "known_ssh_only", False),
                     )
 
                     if current_jump in task_ids:
@@ -1115,7 +1139,12 @@ def main():
     parser.add_argument(
         "--force-rescan",
         action="store_true",
-        help="Force retry of already-attempted connections (ignore attempt history)",
+        help="Retry already-attempted credentials (does not override --known-ssh-only scope)",
+    )
+    parser.add_argument(
+        "--known-ssh-only",
+        action="store_true",
+        help="Only scan origin/IP/port tuples with historical SSH authentication/session evidence (requires attempt tracking)",
     )
     parser.add_argument(
         "--record-closed-port-attempts",
@@ -1162,6 +1191,8 @@ def main():
 
     args = parser.parse_args()
     global graph, max_depth
+    if args.known_ssh_only and not CONFIG.get("record_connection_attempts", True):
+        parser.error("--known-ssh-only requires record_connection_attempts: true in config.yml")
     if args.no_recursion and args.start_from:
         parser.error("--no-recursion cannot be used with --start-from")
 
