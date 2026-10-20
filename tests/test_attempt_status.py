@@ -165,16 +165,28 @@ async def test_outer_wait_for_timeout(store, ssh_env, monkeypatch, method):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("probe_error", [asyncssh.PermissionDenied("command policy"), asyncssh.ConnectionLost("post-login"), None])
-async def test_post_auth_probe_failure(store, ssh_env, probe_error):
+@pytest.mark.parametrize(
+    ("probe_error", "expected"),
+    [
+        (asyncssh.PermissionDenied("command policy"), (1, "success")),
+        (asyncssh.ConnectionLost("post-login"), (0, "session_failed")),
+        (None, (1, "success")),
+    ],
+)
+async def test_post_auth_probe_failure_does_not_discard_live_ssh_session(
+    store, ssh_env, probe_error, expected
+):
     _, connection, _, creds, manager = ssh_env
     connection.run.side_effect = probe_error
     if probe_error is None:
         connection.run.return_value = SimpleNamespace(exit_status=1, stdout="", stderr="hostname unavailable")
     await try_all("127.0.0.1", 22, credential_store=creds, ssh_session_manager=manager,
                   attempt_store=store, source_hostname="source", max_retries=1)
-    assert rows(store)[0][:2] == (0, "session_failed")
-    creds.store.assert_not_awaited()
+    assert rows(store)[0][:2] == expected
+    if expected[0]:
+        creds.store.assert_awaited_once()
+    else:
+        creds.store.assert_not_awaited()
 
 
 @pytest.mark.asyncio

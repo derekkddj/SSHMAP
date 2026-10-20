@@ -406,6 +406,15 @@ async def handle_target(
                         )
                         # Use the hostname that was already retrieved during connection
                         remote_hostname = ssh_conn.get_remote_hostname()
+                        if graph is not None and getattr(ssh_conn, "_hostname_probe_failed", False):
+                            try:
+                                known_hostname = graph.get_hostname_by_ip(target)
+                                if known_hostname:
+                                    remote_hostname = known_hostname
+                            except Exception as e:
+                                sshmap_logger.debug(
+                                    f"[{target}:{port}] Could not resolve hostname fallback from graph: {e}"
+                                )
                         if graph is not None:
                             try:
                                 remote_ips = await get_remote_ip(ssh_conn)

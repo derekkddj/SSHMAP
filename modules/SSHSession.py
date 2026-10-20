@@ -68,6 +68,10 @@ class SSHSession:
         self._on_broken = callback
 
     def _is_connection_failure(self, error):
+        # PermissionDenied can reject an individual command channel without
+        # closing the authenticated SSH transport.
+        if isinstance(error, asyncssh.PermissionDenied):
+            return False
         return isinstance(
             error,
             (
@@ -254,12 +258,18 @@ class SSHSession:
                 )
             else:
                 self.remote_hostname = await get_remote_hostname(self)
-            if self._broken or self.connection is None or getattr(self, "_hostname_probe_failed", False):
+            if self._broken or self.connection is None:
                 self.sshmap_logger.debug(
                     f"Connection to {self.host}:{self.port} broke while getting hostname"
                 )
                 self.attempt_status = "session_failed"
                 return False
+            if getattr(self, "_hostname_probe_failed", False):
+                # Hostname discovery is best-effort. A live authenticated SSH
+                # session is still valid; get_remote_hostname() returned the IP fallback.
+                self.sshmap_logger.debug(
+                    f"SSH is authenticated to {self.host}:{self.port}, but hostname discovery failed; using IP fallback"
+                )
             keyfile_display = self.key_filename.split('/')[-1] if self.key_filename else None
             cred_display = self.password if self.password else keyfile_display
             self.sshmap_logger.success(

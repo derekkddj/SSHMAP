@@ -336,6 +336,22 @@ class GraphDB:
                 }
             return None
 
+    def get_hostname_by_ip(self, ip):
+        """Return a known hostname whose stored interface matches an IP address."""
+        with self.driver.session() as session:
+            record = session.run(
+                """
+                MATCH (h:Host)
+                WHERE any(interface IN coalesce(h.interfaces, [])
+                          WHERE split(interface, '/')[0] = $ip)
+                RETURN h.hostname AS hostname
+                ORDER BY h.hostname
+                LIMIT 1
+                """,
+                ip=ip,
+            ).single()
+            return record["hostname"] if record else None
+
     def get_all_hosts(self):
         """
         Retrieve all hosts in the database.
